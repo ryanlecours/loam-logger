@@ -10,6 +10,7 @@
  * Usage (from apps/api):
  *   npx tsx scripts/lift-geometry.ts fetch --out <file.json.gz>
  *       [--endpoint <overpass interpreter url>] [--tile-deg 45] [--pause-ms 2000]
+ *       [--fresh]   ignore tiles kept from an earlier, aborted run
  *       [--allow-untrusted-endpoint]   an endpoint other than overpass-api.de, e.g.
  *                                      one we self-host; blocked domains are refused
  *   npx tsx scripts/lift-geometry.ts convert --geojsonseq <aerialways.geojsonseq> --out <file.json.gz>
@@ -20,14 +21,17 @@
  *                          under the floor a worldwide snapshot should clear
  *   DATABASE_URL="…" npx tsx scripts/lift-geometry.ts status
  *
- * `fetch` and `convert` touch no database. `load` is a dry run unless --execute is given,
+ * `fetch` and `convert` touch no database. `fetch` keeps each finished tile
+ * in `<out>.tiles/`, so after an abort on a busy tile the same command picks
+ * up where it stopped; the directory is removed once the file is written. `load` is a dry run unless --execute is given,
  * and prints the database host it would write to either way.
  *
  * The snapshot file is OpenStreetMap data (ODbL 1.0, © OpenStreetMap
  * contributors). Keep it out of git: this repository is public.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
-import { basename } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { prisma } from '../src/lib/prisma';
 import {
@@ -57,6 +61,7 @@ type Args = {
   execute: boolean;
   allowShrink: boolean;
   allowUntrustedEndpoint: boolean;
+  fresh: boolean;
 };
 
 function valueOf(argv: string[], i: number): string {
@@ -80,6 +85,7 @@ function parseArgs(argv: string[]): Args {
     execute: false,
     allowShrink: false,
     allowUntrustedEndpoint: false,
+    fresh: false,
   };
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
@@ -93,6 +99,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--execute') args.execute = true;
     else if (a === '--allow-shrink') args.allowShrink = true;
     else if (a === '--allow-untrusted-endpoint') args.allowUntrustedEndpoint = true;
+    else if (a === '--fresh') args.fresh = true;
     else throw new Error(`Unknown argument ${a}`);
   }
   return args;
@@ -118,6 +125,12 @@ const summarize = (lines: Array<{ kind: string }>): string => {
 
 async function fetchCommand(args: Args) {
   if (!args.out) throw new Error('fetch needs --out <file.json.gz>');
+  const cacheDir = `${args.out}.tiles`;
+  if (args.fresh) rmSync(cacheDir, { recursive: true, force: true });
+  mkdirSync(cacheDir, { recursive: true });
+  const cacheFile = (key: string) =>
+    join(cacheDir, `${createHash('sha1').update(key).digest('hex')}.json`);
+
   console.log(`Fetching aerialways worldwide from ${args.endpoint} in ${args.tileDeg}° tiles`);
   const dataset = await fetchAerialwaySnapshot({
     endpoint: args.endpoint,
@@ -125,11 +138,21 @@ async function fetchCommand(args: Args) {
     tileDeg: args.tileDeg,
     pauseMs: args.pauseMs,
     log: (msg) => console.log(msg),
+    // Cached tiles are not trusted blindly: the whole dataset goes through
+    // validateAerialwayDataset below before anything is written.
+    tileCache: {
+      get: async (key) => {
+        const file = cacheFile(key);
+        return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : undefined;
+      },
+      set: async (key, answer) => writeFileSync(cacheFile(key), JSON.stringify(answer)),
+    },
   });
   // Round-trip through the loader's own check so a file that fetch writes is
   // one that load accepts.
   validateAerialwayDataset(dataset);
   writeFileSync(args.out, gzipSync(JSON.stringify(dataset)));
+  rmSync(cacheDir, { recursive: true, force: true });
   console.log(
     `\nWrote ${dataset.lines.length} lines (OSM base ${dataset.osmBaseAt ?? 'unknown'}) to ${args.out}` +
       `\nKinds: ${summarize(dataset.lines)}`

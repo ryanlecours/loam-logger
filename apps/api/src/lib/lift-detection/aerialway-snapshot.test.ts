@@ -134,6 +134,45 @@ describe('fetchAerialwaySnapshot', () => {
     expect(noSleep).toHaveBeenNthCalledWith(2, 60_000);
   });
 
+  it('resumes from cached tiles, fetching only the ones an earlier run did not finish', async () => {
+    const store = new Map<string, { lines: ReturnType<typeof parseGeojsonSeqAerialways>; osmBase: string | null }>();
+    const tileCache = {
+      get: jest.fn(async (key: string) => store.get(key)),
+      set: jest.fn(async (key: string, value: { lines: never[]; osmBase: string | null }) => {
+        store.set(key, value);
+      }),
+    };
+
+    // First run: tile 3 of 8 keeps failing and the run aborts.
+    const failing = jest.fn(async () => answer([]));
+    failing
+      .mockResolvedValueOnce(answer([way(1)]))
+      .mockResolvedValueOnce(answer([way(2)]))
+      .mockResolvedValue(failure(502));
+    await expect(
+      fetchAerialwaySnapshot({
+        tileDeg: 90,
+        fetchImpl: failing as unknown as typeof fetch,
+        sleep: noSleep,
+        tileCache,
+      })
+    ).rejects.toThrow('tile 3/8');
+    expect(store.size).toBe(2);
+
+    // Second run: the two finished tiles come from the cache.
+    const healthy = jest.fn(async () => answer([way(3)]));
+    const dataset = await fetchAerialwaySnapshot({
+      tileDeg: 90,
+      fetchImpl: healthy as unknown as typeof fetch,
+      sleep: noSleep,
+      tileCache,
+    });
+    expect(healthy).toHaveBeenCalledTimes(6);
+    expect(dataset.lines.map((l) => l.id)).toEqual(['1', '2', '3']);
+    // Keys carry the endpoint, so a cache never mixes sources.
+    expect([...store.keys()][0]).toBe('https://overpass-api.de/api/interpreter|-90,-180,0,-90');
+  });
+
   it('checks the endpoint before sending anything', async () => {
     const fetchImpl = jest.fn();
 

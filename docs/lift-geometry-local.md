@@ -164,8 +164,10 @@ here runs a migration by hand: the tables arrive through Railway's boot-time
 ```bash
 # On a machine that can reach overpass-api.de. About 20 minutes when the
 # instance has capacity, longer when it is busy; the log shows each tile.
-# If a tile exhausts its retries the run aborts with nothing written: re-run
-# later (quiet hours in Europe help).
+# If a tile exhausts its retries the run aborts with no snapshot written, but
+# finished tiles are kept in ~/aerialways-2026-10.json.gz.tiles/: re-run the
+# same command later (quiet hours in Europe help) and it fetches only the rest.
+# --fresh discards them. The directory is removed once the file is written.
 npx tsx scripts/lift-geometry.ts fetch --out ~/aerialways-2026-10.json.gz
 ```
 

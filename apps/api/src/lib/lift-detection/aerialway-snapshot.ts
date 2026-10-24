@@ -84,7 +84,7 @@ way["aerialway"](${tile.south},${tile.west},${tile.north},${tile.east});
 out geom;`;
 }
 
-interface TileAnswer {
+export interface TileAnswer {
   lines: LiftLine[];
   osmBase: string | null;
 }
@@ -149,6 +149,17 @@ export interface SnapshotOptions {
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   log?: (msg: string) => void;
+  /**
+   * Where finished tiles are kept, so a run that aborts on one busy tile can
+   * be re-run without fetching the others again. Keys include the endpoint
+   * and tile size, so answers from different sources never mix.
+   */
+  tileCache?: TileCache;
+}
+
+export interface TileCache {
+  get(key: string): Promise<TileAnswer | undefined>;
+  set(key: string, answer: TileAnswer): Promise<void>;
 }
 
 /** Queries every tile and merges the answers. Throws if any tile fails for good. */
@@ -166,13 +177,21 @@ export async function fetchAerialwaySnapshot(opts: SnapshotOptions = {}): Promis
   // The oldest base across tiles is the age the whole snapshot can claim.
   let osmBaseAt: string | null = null;
 
+  let fetchedAny = false;
   for (const [i, tile] of tiles.entries()) {
-    if (i > 0) await sleep(pauseMs);
     const label = `tile ${i + 1}/${tiles.length} (${tile.south},${tile.west},${tile.north},${tile.east})`;
-    let answer: TileAnswer | null = null;
+    const cacheKey = `${endpoint}|${tile.south},${tile.west},${tile.north},${tile.east}`;
+    let answer: TileAnswer | null = (await opts.tileCache?.get(cacheKey)) ?? null;
+    if (answer) {
+      log(`${label}: ${answer.lines.length} lines from an earlier run`);
+    } else if (fetchedAny) {
+      await sleep(pauseMs);
+    }
     for (let attempt = 0; answer === null; attempt++) {
       try {
         answer = await fetchTile(endpoint, tile, fetchImpl);
+        fetchedAny = true;
+        await opts.tileCache?.set(cacheKey, answer);
       } catch (err) {
         const why = (err as Error).message;
         if (err instanceof FatalTileError || attempt >= RETRY_WAITS_MS.length) {

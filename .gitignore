@@ -58,3 +58,4 @@ apps/api/scripts/preview-email.tsx
 # OSM aerialway snapshots (scripts/lift-geometry.ts). ODbL data; this repo is public.
 aerialways*.json.gz
 *.geojsonseq
+aerialways*.json.gz.tiles/
