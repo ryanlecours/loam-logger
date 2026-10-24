@@ -1,4 +1,9 @@
+jest.mock('./strava-rate-limit', () => ({
+  recordStravaRateLimit: jest.fn(async () => undefined),
+}));
+
 import { fetchStravaStreams } from './strava-streams';
+import { recordStravaRateLimit } from './strava-rate-limit';
 
 const okResponse = (body: unknown) =>
   ({
@@ -34,6 +39,14 @@ describe('fetchStravaStreams', () => {
     expect(url).toContain('key_by_type=true');
     expect(init.headers.Authorization).toBe('Bearer token-1');
     expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('records the app-wide budget Strava reports, on a 429 too', async () => {
+    const limited = { ...errorResponse(429, 'Rate Limit Exceeded'), headers: new Headers({ 'X-ReadRateLimit-Usage': '100,400' }) };
+    (global.fetch as jest.Mock).mockResolvedValueOnce(limited);
+
+    await expect(fetchStravaStreams('token-1', '12345')).rejects.toThrow('429');
+    expect(recordStravaRateLimit).toHaveBeenCalledWith(limited.headers);
   });
 
   it('returns no_streams on 404 (manual activity)', async () => {
