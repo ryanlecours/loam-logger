@@ -1,6 +1,10 @@
 /**
- * OpenStreetMap aerialway lookup for Layer A, cached per grid cell in the
- * OverpassCache table (WeatherCache/GeoCache precedent).
+ * OpenStreetMap aerialway lookup for Layer A.
+ *
+ * When a local snapshot is loaded (local-geometry.ts), every ride is answered
+ * from it and Overpass is never called. Without one, lines come from Overpass
+ * per grid cell, cached in the OverpassCache table (WeatherCache/GeoCache
+ * precedent).
  *
  * Overpass is a free, rate-limited, community-run service, so this module is
  * strictly best-effort: it never throws. When a live query fails, callers get
@@ -11,11 +15,42 @@
 import { prisma } from '../prisma';
 import { logger } from '../logger';
 import type { LiftLine, RidePoint } from './detector';
+import { queryLocalLiftLines, type BoundingBox } from './local-geometry';
+
+const DEFAULT_OVERPASS_API_BASE = 'https://overpass-api.de/api/interpreter';
+
+// Lift geometry decides what counts as riding for every ride, so it is never
+// taken from an instance under Russian registry control, whatever an
+// operator configures (some public mirrors are, e.g. maps.mail.ru).
+const BLOCKED_TLDS = ['ru', 'su', 'xn--p1ai'];
+
+/** True when the URL's host is under a blocked top-level domain (or is not a URL). */
+export function isBlockedOverpassUrl(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase().replace(/\.$/, '');
+  } catch {
+    return true;
+  }
+  return BLOCKED_TLDS.some((tld) => host === tld || host.endsWith(`.${tld}`));
+}
+
+/** The configured base, or the default when it is unset or blocked. */
+export function resolveOverpassBase(configured: string | undefined): string {
+  if (!configured) return DEFAULT_OVERPASS_API_BASE;
+  if (isBlockedOverpassUrl(configured)) {
+    logger.error(
+      { configured },
+      '[Overpass] OVERPASS_API_BASE is on a blocked domain; using the default instance'
+    );
+    return DEFAULT_OVERPASS_API_BASE;
+  }
+  return configured;
+}
 
 // Must end in `/interpreter`: probeOverpass derives the instance's `/status`
 // page from it, and skips the probe (with a warning) for any other shape.
-const OVERPASS_API_BASE =
-  process.env.OVERPASS_API_BASE || 'https://overpass-api.de/api/interpreter';
+const OVERPASS_API_BASE = resolveOverpassBase(process.env.OVERPASS_API_BASE);
 // Identify ourselves per Overpass usage policy.
 const USER_AGENT = 'loam-logger (component wear tracking; lift detection)';
 
@@ -161,9 +196,20 @@ export function cellKeysForPoints(points: Array<Pick<RidePoint, 'lat' | 'lng'>>)
   return keys;
 }
 
-function cellBounds(cellKey: string): { south: number; west: number; north: number; east: number } {
+function cellBounds(cellKey: string): BoundingBox {
   const [south, west] = cellKey.split(',').map(Number);
   return { south, west, north: south + CELL_SIZE_DEG, east: west + CELL_SIZE_DEG };
+}
+
+/** The rectangle the cells cover (cellKeysForPoints always yields a full grid). */
+export function boundsForCells(cellKeys: string[]): BoundingBox {
+  const bounds = cellKeys.map(cellBounds);
+  return {
+    south: Math.min(...bounds.map((b) => b.south)),
+    west: Math.min(...bounds.map((b) => b.west)),
+    north: Math.max(...bounds.map((b) => b.north)),
+    east: Math.max(...bounds.map((b) => b.east)),
+  };
 }
 
 export function buildOverpassQuery(cellKey: string): string {
@@ -221,8 +267,12 @@ async function fetchCell(cellKey: string): Promise<LiftLine[]> {
 }
 
 /**
- * Lift lines near a ride, from cache where fresh, from Overpass otherwise.
- * Never throws.
+ * Lift lines near a ride: from the local snapshot when one is loaded, else
+ * from the Overpass cache where fresh and Overpass otherwise. Never throws.
+ *
+ * The cell grid and its size limit apply to both sources, so a ride gets the
+ * same area searched (and the same `too_large` answer) whichever one serves
+ * it.
  */
 export async function getLiftLines(
   points: Array<Pick<RidePoint, 'lat' | 'lng'>>
@@ -237,6 +287,13 @@ export async function getLiftLines(
       '[Overpass] Ride bbox too large for geometry layer, running kinematic-only'
     );
     return { geometryAvailable: false, liftLines: [], reason: 'too_large' };
+  }
+
+  // Null means no snapshot is loaded (or it could not be read): fall through
+  // to Overpass. An empty array is a complete answer of "no lifts here".
+  const local = await queryLocalLiftLines(boundsForCells(cells));
+  if (local) {
+    return { geometryAvailable: true, liftLines: local };
   }
 
   const byId = new Map<string, LiftLine>();

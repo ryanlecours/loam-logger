@@ -386,6 +386,50 @@ model OverpassCache {
   fetchedAt DateTime @default(now())
 }
 
+enum LiftGeometryImportStatus {
+  LOADING
+  ACTIVE
+  SUPERSEDED
+}
+
+// A worldwide snapshot of OpenStreetMap aerialway ways, loaded by
+// scripts/lift-geometry.ts from a machine that can reach Overpass. While one
+// import is ACTIVE, getLiftLines answers from it and never calls Overpass at
+// ride time; OverpassCache is only the fallback for an environment with no
+// import. A new load is written as LOADING and swapped in, so readers never
+// see a half-loaded set. OSM data: ODbL 1.0, © OpenStreetMap contributors.
+model LiftGeometryImport {
+  id          String                   @id @default(uuid())
+  status      LiftGeometryImportStatus @default(LOADING)
+  source      String // where the snapshot came from, e.g. the Overpass endpoint
+  osmBaseAt   DateTime? // OSM database time the snapshot reflects
+  lineCount   Int
+  createdAt   DateTime                 @default(now())
+  activatedAt DateTime?
+  lines       LiftGeometryLine[]
+
+  @@index([status])
+}
+
+// One aerialway way from a LiftGeometryImport, with its bounding box
+// denormalized so a ride's area is a plain range query (no PostGIS).
+model LiftGeometryLine {
+  id          String             @id @default(uuid())
+  importId    String
+  osmId       String
+  name        String?
+  kind        String // the aerialway tag value: chair_lift, gondola, ...
+  coordinates Json // [{lat,lng},...], the LiftLine shape
+  minLat      Float
+  maxLat      Float
+  minLng      Float
+  maxLng      Float
+  import      LiftGeometryImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@unique([importId, osmId])
+  @@index([importId, minLat, maxLat])
+}
+
 model WeatherCache {
   id        String   @id @default(cuid())
   latKey    Float
