@@ -777,6 +777,7 @@ export type Mutation = {
   revokeComponentShare: Scalars['Boolean']['output'];
   selectBikeForDowngrade: Bike;
   setComponentRideAdjustment: ComponentRideAdjustmentResult;
+  setRideLiftElevation: Ride;
   snoozeComponent: Component;
   swapComponents: SwapComponentsResult;
   triggerProviderSync: TriggerSyncResult;
@@ -986,6 +987,12 @@ export type MutationSelectBikeForDowngradeArgs = {
 export type MutationSetComponentRideAdjustmentArgs = {
   componentId: Scalars['ID']['input'];
   kind: ComponentRideAdjustmentKind;
+  rideId: Scalars['ID']['input'];
+};
+
+
+export type MutationSetRideLiftElevationArgs = {
+  count?: InputMaybe<Scalars['Boolean']['input']>;
   rideId: Scalars['ID']['input'];
 };
 
@@ -1272,6 +1279,15 @@ export type Ride = {
   __typename?: 'Ride';
   averageHr?: Maybe<Scalars['Int']['output']>;
   bikeId?: Maybe<Scalars['ID']['output']>;
+  /**
+   * Elevation gain after the rider's lift choice: elevationGainMeters minus the
+   * climb a detected chairlift or gondola did, unless the rider chose to count
+   * it (see lift). Equals elevationGainMeters when no lift was detected. Show
+   * this as the ride's climb; elevationGainMeters stays the editable recorded
+   * value. Wherever a lift-adjusted figure appears, credit
+   * "© OpenStreetMap contributors" (https://www.openstreetmap.org/copyright).
+   */
+  countedElevationGainMeters: Scalars['Float']['output'];
   createdAt: Scalars['String']['output'];
   distanceMeters: Scalars['Float']['output'];
   durationSeconds: Scalars['Int']['output'];
@@ -1280,7 +1296,9 @@ export type Ride = {
    * Total descent. Null means no source reported one (rides imported before
    * descent was tracked, manual rides without one, Strava rides whose stream
    * has not been analyzed), so clients hide the stat rather than show 0.
-   * Zero is a genuinely flat ride.
+   * Zero is a genuinely flat ride. Garmin and Suunto report it directly;
+   * WHOOP's is derived (gain minus net change) from phone altitude and is
+   * approximate; Strava and in-app rides get a sum over the altitude stream.
    */
   elevationLossMeters?: Maybe<Scalars['Float']['output']>;
   garminActivityId?: Maybe<Scalars['String']['output']>;
@@ -1293,6 +1311,11 @@ export type Ride = {
    */
   garminDeviceName?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
+  /**
+   * Lifts detected on this ride, and the rider's choice about their climb.
+   * Null when no lift was detected (including rides never analyzed).
+   */
+  lift?: Maybe<RideLift>;
   location?: Maybe<Scalars['String']['output']>;
   notes?: Maybe<Scalars['String']['output']>;
   rideType: Scalars['String']['output'];
@@ -1321,6 +1344,36 @@ export type Ride = {
   userId: Scalars['ID']['output'];
   weather?: Maybe<RideWeather>;
   whoopWorkoutId?: Maybe<Scalars['String']['output']>;
+};
+
+export type RideLift = {
+  __typename?: 'RideLift';
+  countElevation: Scalars['Boolean']['output'];
+  countElevationChoice?: Maybe<Scalars['Boolean']['output']>;
+  elevationGainMeters: Scalars['Float']['output'];
+  segments: Array<RideLiftSegment>;
+};
+
+export enum RideLiftKind {
+  Chairlift = 'CHAIRLIFT',
+  Gondola = 'GONDOLA',
+  Other = 'OTHER'
+}
+
+export type RideLiftSegment = {
+  __typename?: 'RideLiftSegment';
+  distanceMeters: Scalars['Float']['output'];
+  durationSeconds: Scalars['Int']['output'];
+  elevationGainMeters: Scalars['Float']['output'];
+  endTime: Scalars['String']['output'];
+  kind?: Maybe<RideLiftKind>;
+  /**
+   * OpenStreetMap name of the matched lift. Null when the lift is unnamed in
+   * OSM or the segment was found from motion alone. Show
+   * "© OpenStreetMap contributors" wherever it appears.
+   */
+  liftName?: Maybe<Scalars['String']['output']>;
+  startTime: Scalars['String']['output'];
 };
 
 /**
