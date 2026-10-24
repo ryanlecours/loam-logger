@@ -203,6 +203,58 @@ export const typeDefs = gql`
     createdAt: String!
     updatedAt: String!
     weather: RideWeather
+    """
+    Elevation gain after the rider's lift choice: elevationGainMeters minus the
+    climb a detected chairlift or gondola did, unless the rider chose to count
+    it (see lift). Equals elevationGainMeters when no lift was detected. Show
+    this as the ride's climb; elevationGainMeters stays the editable recorded
+    value. Wherever a lift-adjusted figure appears, credit
+    "© OpenStreetMap contributors" (https://www.openstreetmap.org/copyright).
+    """
+    countedElevationGainMeters: Float!
+    """
+    Lifts detected on this ride, and the rider's choice about their climb.
+    Null when no lift was detected (including rides never analyzed).
+    """
+    lift: RideLift
+  }
+
+  # OSM aerialway families as riders name them. CHAIRLIFT covers chair_lift
+  # and mixed_lift, GONDOLA covers gondola and cable_car, OTHER is any surface
+  # lift (t-bar, rope tow, magic carpet, ...).
+  enum RideLiftKind {
+    CHAIRLIFT
+    GONDOLA
+    OTHER
+  }
+
+  # One detected trip up a lift.
+  type RideLiftSegment {
+    startTime: String!
+    endTime: String!
+    durationSeconds: Int!
+    elevationGainMeters: Float!
+    distanceMeters: Float!
+    """
+    OpenStreetMap name of the matched lift. Null when the lift is unnamed in
+    OSM or the segment was found from motion alone. Show
+    "© OpenStreetMap contributors" wherever it appears.
+    """
+    liftName: String
+    # Null when the segment was not matched to a mapped lift.
+    kind: RideLiftKind
+  }
+
+  type RideLift {
+    # In ride order; never empty (Ride.lift is null instead).
+    segments: [RideLiftSegment!]!
+    # Climb summed over the segments.
+    elevationGainMeters: Float!
+    # Whether that climb counts in countedElevationGainMeters, after the default.
+    countElevation: Boolean!
+    # The rider's saved answer. Null means no answer yet; countElevation then
+    # carries the default, which is not counted.
+    countElevationChoice: Boolean
   }
 
   enum RideTrackStatus {
@@ -1364,6 +1416,12 @@ export const typeDefs = gql`
     # ingestion existed. Returns the track's current state; poll rideTrack
     # until AVAILABLE.
     requestRideTrack(rideId: ID!): RideTrack!
+    # Save whether a detected lift's climb counts in this ride's elevation gain
+    # (true counts it, false removes it, null clears the answer back to the
+    # default). Elevation only: lift time and distance are not affected. Fails
+    # with NOT_FOUND for another rider's ride and BAD_USER_INPUT when no lift
+    # was detected on the ride.
+    setRideLiftElevation(rideId: ID!, count: Boolean): Ride!
     bulkUpdateComponentBaselines(input: BulkUpdateBaselinesInput!): [Component!]!
     acceptTerms(input: AcceptTermsInput!): AcceptTermsResult!
     updateUserPreferences(input: UpdateUserPreferencesInput!): User!
