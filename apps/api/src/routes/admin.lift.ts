@@ -13,6 +13,7 @@ import {
 import { checkAdminRateLimit } from '../lib/rate-limit';
 import { enqueueLiftDetectionJob, getLiftQueue } from '../lib/queue';
 import { getActiveLiftGeometryImport, probeOverpass } from '../lib/lift-detection';
+import { checkStravaBudget, getStravaRateLimitSnapshot } from '../lib/strava-rate-limit';
 import type { EnqueueLiftResult, LiftJobData } from '../lib/queue';
 import { logError } from '../lib/logger';
 
@@ -34,7 +35,12 @@ const MAX_BACKFILL_LIMIT = 1000;
 const DEFAULT_REANALYZE_LIMIT = 50;
 const MAX_REANALYZE_LIMIT = 200;
 
-const REANALYZE_SCOPES = ['degraded', 'all', 'pending'] as const;
+// Each `unfetched` job spends one Strava API read from the app-wide budget,
+// so its batches are smaller and also checked against that budget.
+const DEFAULT_UNFETCHED_LIMIT = 25;
+const MAX_UNFETCHED_LIMIT = 50;
+
+const REANALYZE_SCOPES = ['degraded', 'all', 'pending', 'unfetched'] as const;
 type ReanalyzeScope = (typeof REANALYZE_SCOPES)[number];
 const isReanalyzeScope = (value: unknown): value is ReanalyzeScope =>
   typeof value === 'string' && (REANALYZE_SCOPES as readonly string[]).includes(value);
@@ -506,15 +512,33 @@ router.get('/queue', async (_req, res) => {
  *     pending   rides with a stream and no detector version: a deferred job
  *               that gave up, an enqueue that failed below, or a stream with
  *               no altitude (harmless: the worker skips it before Overpass)
- *   limit?: number     batch size (default 50, cap 200)
+ *     unfetched Strava rides with coordinates and no stored stream, whose
+ *               owner is still connected to Strava. Never analyzed: the
+ *               stream is fetched lazily on a ride's first lift job, and
+ *               these predate that or never had one queued. Each job costs
+ *               one Strava API read (see Strava budget below).
+ *   limit?: number     batch size (default 50, cap 200; for unfetched,
+ *                      default 25, cap 50)
  *   before?: string    ISO start time cursor, as for backfill-descent
  *   beforeId?: string  with `before`: the ride id the previous batch ended on
  *   dryRun?: boolean   counts only, no writes, no cooldown
  * }
  *
- * `counts` (degraded, analyzed, pending) comes back on a dry run and on the
- * first batch of a walk; a call that follows a cursor returns it as null, so
- * the three scans do not run for every batch.
+ * `counts` (degraded, analyzed, pending, unfetched) comes back on a dry run
+ * and on the first batch of a walk; a call that follows a cursor returns it
+ * as null, so the scans do not run for every batch.
+ *
+ * Strava budget (scope unfetched only): Strava limits the whole app's reads
+ * per 15 minutes and per day, shared with live syncing. Each stream fetch
+ * records the usage Strava reports (lib/strava-rate-limit.ts), and a batch
+ * is refused with 429 `STRAVA_BUDGET` and a Retry-After when it would take
+ * either window past half its limit; the cooldown is not spent. With the
+ * default read limits (100 per 15 minutes, 1,000 a day) that is two batches
+ * of 25 per quarter hour and about 500 rides a day. The response's
+ * `stravaBudget` shows the usage the decision was based on. The count does
+ * not reach zero: a ride whose activity has no GPS stream (Strava answers
+ * with no latlng) or no altitude stays unfetched, and the cursor walks past
+ * it.
  *
  * Geometry source: once a local aerialway snapshot is loaded
  * (scripts/lift-geometry.ts, docs/lift-geometry-local.md), every job reads
@@ -546,7 +570,10 @@ router.post('/reanalyze', async (req, res) => {
       return sendBadRequest(res, `scope must be one of: ${REANALYZE_SCOPES.join(', ')}`);
     }
 
-    const params = parseBatchParams(req.body, DEFAULT_REANALYZE_LIMIT, MAX_REANALYZE_LIMIT);
+    const params =
+      scope === 'unfetched'
+        ? parseBatchParams(req.body, DEFAULT_UNFETCHED_LIMIT, MAX_UNFETCHED_LIMIT)
+        : parseBatchParams(req.body, DEFAULT_REANALYZE_LIMIT, MAX_REANALYZE_LIMIT);
     if ('error' in params) {
       return sendBadRequest(res, params.error);
     }
@@ -555,6 +582,8 @@ router.post('/reanalyze', async (req, res) => {
     // A loaded snapshot answers every job locally, so Overpass health only
     // matters without one.
     const localGeometry = await getActiveLiftGeometryImport();
+    const stravaBudget =
+      scope === 'unfetched' ? checkStravaBudget(await getStravaRateLimitSnapshot(), limit) : null;
 
     if (!dryRun) {
       // Checked before the cooldown so a refused batch does not also cost
@@ -577,6 +606,13 @@ router.post('/reanalyze', async (req, res) => {
             'OVERPASS_UNAVAILABLE'
           );
         }
+      }
+      if (stravaBudget && !stravaBudget.allowed) {
+        if (stravaBudget.retryAfter) res.setHeader('Retry-After', stravaBudget.retryAfter.toString());
+        return sendError(res, 429, stravaBudget.detail, 'STRAVA_BUDGET', {
+          retryAfter: stravaBudget.retryAfter,
+          stravaBudget,
+        });
       }
       const rateLimit = await checkAdminRateLimit('liftReanalyze', 'all');
       if (!rateLimit.allowed) {
@@ -603,13 +639,23 @@ router.post('/reanalyze', async (req, res) => {
       },
       all: { ...analyzableWhere, liftDetectorVersion: { not: null } },
       pending: { ...analyzableWhere, liftDetectorVersion: null },
+      // A disconnected owner has no token to fetch with; the worker would
+      // skip the ride, so it is left out rather than counted as work.
+      unfetched: {
+        stravaActivityId: { not: null },
+        startLat: { not: null },
+        startLng: { not: null },
+        stream: { is: null },
+        user: { tokens: { some: { provider: 'strava' as const } } },
+      },
     };
 
     const withCounts = dryRun || before === undefined;
-    const [degradedCount, analyzedCount, pendingCount, rides] = await Promise.all([
+    const [degradedCount, analyzedCount, pendingCount, unfetchedCount, rides] = await Promise.all([
       withCounts ? prisma.ride.count({ where: scopeWhere.degraded }) : null,
       withCounts ? prisma.ride.count({ where: scopeWhere.all }) : null,
       withCounts ? prisma.ride.count({ where: scopeWhere.pending }) : null,
+      withCounts ? prisma.ride.count({ where: scopeWhere.unfetched }) : null,
       dryRun
         ? Promise.resolve([] as { id: string; startTime: Date }[])
         : prisma.ride.findMany({
@@ -650,8 +696,14 @@ router.post('/reanalyze', async (req, res) => {
           }
         : { kind: 'overpass' },
       counts: withCounts
-        ? { degraded: degradedCount, analyzed: analyzedCount, pending: pendingCount }
+        ? {
+            degraded: degradedCount,
+            analyzed: analyzedCount,
+            pending: pendingCount,
+            unfetched: unfetchedCount,
+          }
         : null,
+      ...(stravaBudget ? { stravaBudget } : {}),
       queued,
       alreadyQueued,
       failed: failedRideIds.length,

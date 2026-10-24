@@ -236,6 +236,43 @@ in that environment.
 Jobs no longer wait on Overpass pacing, so batches drain much faster; the 409
 still keeps them from stacking.
 
+Done on production 2026-10-24: analyzed 1,049, degraded 12, pending 0.
+
+### 5. Scan Strava rides that never had a track (scope `unfetched`)
+
+The walk above only reaches rides with a stored stream. A Strava ride's
+stream is fetched on its first lift job, so Strava rides imported before lift
+detection, or never queued, have none and were never scanned (about 1,574 on
+production on 2026-10-24, across 32 users). Scope `unfetched` queues them;
+each job fetches the stream from Strava, stores it, and runs detection.
+Rides whose owner has disconnected Strava are left out, since there is no
+token to fetch with.
+
+Each job is one Strava API read from the app-wide budget that live syncing
+also uses. Batches default to 25 (cap 50), and a batch is refused with 429
+`STRAVA_BUDGET` when it would take Strava's 15-minute or daily read usage
+past half the limit, as last reported in Strava's own response headers. At
+the default read limits (100 per 15 minutes, 1,000 a day) that is about 500
+rides a day, so the walk takes three to four days; leave the loop running.
+In the batch loop, wait `details.retryAfter` seconds on that code:
+
+```js
+if (res.code === 'STRAVA_BUDGET') {
+  console.warn(res.error);
+  await sleep((res.details.retryAfter + 5) * 1000);
+  continue;
+}
+```
+
+`counts.unfetched` will not reach zero: activities with no GPS stream (Strava
+returns none) or no altitude keep no stream, and the cursor walks past them.
+Each such ride costs a Strava read every time a walk reaches it, so if the
+loop stops, resume it from its last `nextCursor` rather than starting over.
+
+The budget check reads usage Strava reported after the previous batch: a new
+batch is refused with 409 until the lift queue has drained, so by then every
+read of the previous batch has happened and been recorded.
+
 ### Refresh (April and October)
 
 Repeat step 2 against production. The load refuses a snapshot under 90% of

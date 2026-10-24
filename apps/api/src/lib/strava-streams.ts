@@ -1,5 +1,6 @@
 import { logger } from './logger';
 import type { NormalizedStreams, RideStreamsResult } from './ride-streams';
+import { recordStravaRateLimit } from './strava-rate-limit';
 
 // Full-resolution per-point streams for one activity. Cadence/heartrate/moving
 // cost nothing extra to request and are needed by lift detection (cadence
@@ -52,6 +53,10 @@ export async function fetchStravaStreams(
   } finally {
     clearTimeout(timeout);
   }
+
+  // Every answer, a 429 included, reports the app-wide budget; the bulk lift
+  // re-analysis paces itself by it.
+  await recordStravaRateLimit(response.headers);
 
   if (response.status === 404) {
     return { status: 'no_streams' };
