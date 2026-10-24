@@ -38,8 +38,17 @@ own 502 page asks automated users to run their own copy. Self-hosting a full
 Overpass to look up about 40,000 lines that barely change is out of
 proportion.
 
-Size, measured 2026-10-24: OSM has 40,201 ways tagged `aerialway` worldwide
-(`way["aerialway"]; out count;` on overpass-api.de, 75 s).
+Size, measured 2026-10-24 with a real snapshot (OSM base 14:39Z):
+
+| | |
+|---|---|
+| Lines | 40,201 (matches `way["aerialway"]; out count;`), 267,442 points; 6.7 per line on average, median 5, 95th percentile 18 |
+| Most common kinds | chair_lift 9,068; station 4,860; platter 4,526; drag_lift 4,148; magic_carpet 3,391; t-bar 2,901; zip_line 2,847; goods 2,466 |
+| Snapshot file | 2.98 MB gzipped, 12.4 MB uncompressed |
+| Postgres | 30.9 MB for `LiftGeometryLine` with its indexes (22.6 MB table, 8.3 MB indexes); about double while a refresh holds both imports |
+| Load | 9 s against a local Postgres; 41.6 MB of WAL |
+| Lookup | 11 to 14 ms per ride for `getLiftLines` |
+| Fetch | 32 tiles from overpass-api.de in about 37 minutes on a busy day; one tile needed all five attempts |
 
 ### Why a new table rather than seeding `OverpassCache`
 
