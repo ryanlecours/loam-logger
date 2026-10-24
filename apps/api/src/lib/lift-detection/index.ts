@@ -25,3 +25,8 @@ export {
   GeometryUnavailableError,
 } from './overpass';
 export type { LiftLinesResult, GeometryUnavailableReason, OverpassProbeResult } from './overpass';
+
+// The snapshot fetch and load live beside these and are imported directly by
+// scripts/lift-geometry.ts; the API itself only reads.
+export { getActiveLiftGeometryImport } from './local-geometry';
+export type { ActiveLiftGeometryImport } from './local-geometry';

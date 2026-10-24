@@ -28,9 +28,11 @@ jest.mock('../lib/queue', () => ({
 }));
 
 const mockProbeOverpass = jest.fn();
+const mockGetActiveLiftGeometryImport = jest.fn();
 
 jest.mock('../lib/lift-detection', () => ({
   probeOverpass: mockProbeOverpass,
+  getActiveLiftGeometryImport: mockGetActiveLiftGeometryImport,
 }));
 
 jest.mock('../lib/logger', () => ({
@@ -69,6 +71,7 @@ describe('Admin lift validation routes', () => {
     mockRateLimit.mockResolvedValue({ allowed: true, redisAvailable: true });
     mockGetJobCounts.mockResolvedValue({ waiting: 0, prioritized: 0, active: 0, delayed: 0, failed: 0, completed: 0 });
     mockProbeOverpass.mockResolvedValue({ ok: true, detail: 'HTTP 200' });
+    mockGetActiveLiftGeometryImport.mockResolvedValue(null);
   });
 
   describe('GET /report', () => {
@@ -506,6 +509,8 @@ describe('Admin lift validation routes', () => {
       expect(res.body.data).toEqual({
         dryRun: false,
         scope: 'degraded',
+        // No snapshot loaded: jobs read geometry through Overpass.
+        geometrySource: { kind: 'overpass' },
         counts: { degraded: 40, analyzed: 1015, pending: 3 },
         queued: 1,
         alreadyQueued: 1,
@@ -682,6 +687,34 @@ describe('Admin lift validation routes', () => {
       const dry = await request(app).post('/api/admin/lift/reanalyze').send({ dryRun: true });
       expect(dry.status).toBe(200);
       expect(mockProbeOverpass).not.toHaveBeenCalled();
+    });
+
+    it('skips the Overpass probe when a local snapshot is loaded, and says so', async () => {
+      // With a snapshot every job reads geometry from Postgres, so an
+      // unreachable Overpass is no reason to refuse.
+      mockGetActiveLiftGeometryImport.mockResolvedValue({
+        id: 'import-1',
+        source: 'overpass:https://overpass-api.de/api/interpreter',
+        osmBaseAt: new Date('2026-10-24T08:00:00Z'),
+        activatedAt: new Date('2026-10-24T09:00:00Z'),
+        lineCount: 41234,
+      });
+      mockProbeOverpass.mockResolvedValue({ ok: false, detail: 'ECONNREFUSED' });
+      mockRideFindMany.mockResolvedValueOnce(rows);
+      mockEnqueue.mockResolvedValue({ status: 'queued', jobId: 'a' });
+
+      const res = await request(app).post('/api/admin/lift/reanalyze').send({ scope: 'pending' });
+
+      expect(res.status).toBe(200);
+      expect(mockProbeOverpass).not.toHaveBeenCalled();
+      expect(res.body.data.queued).toBe(2);
+      expect(res.body.data.geometrySource).toEqual({
+        kind: 'local',
+        importId: 'import-1',
+        osmBaseAt: '2026-10-24T08:00:00.000Z',
+        activatedAt: '2026-10-24T09:00:00.000Z',
+        lineCount: 41234,
+      });
     });
 
     it('refuses a batch while the lift queue has outstanding jobs, without spending the cooldown', async () => {

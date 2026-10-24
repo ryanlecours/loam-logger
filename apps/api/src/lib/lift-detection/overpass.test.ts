@@ -9,8 +9,13 @@ jest.mock('../prisma', () => ({
   },
 }));
 
+jest.mock('./local-geometry', () => ({
+  queryLocalLiftLines: jest.fn(),
+}));
+
 import {
   getLiftLines,
+  boundsForCells,
   cellKeysForPoints,
   buildOverpassQuery,
   parseOverpassAerialways,
@@ -18,7 +23,9 @@ import {
   GeometryUnavailableError,
 } from './overpass';
 import { prisma } from '../prisma';
+import { queryLocalLiftLines } from './local-geometry';
 
+const mockQueryLocal = queryLocalLiftLines as jest.Mock;
 const mockFindMany = prisma.overpassCache.findMany as jest.Mock;
 const mockUpsert = prisma.overpassCache.upsert as jest.Mock;
 
@@ -57,6 +64,16 @@ describe('cellKeysForPoints', () => {
   });
 });
 
+describe('boundsForCells', () => {
+  it('spans the full rectangle of the cells', () => {
+    const b = boundsForCells(['45.45,-122.10', '45.45,-122.05', '45.50,-122.10', '45.50,-122.05']);
+    expect(b.south).toBeCloseTo(45.45);
+    expect(b.west).toBeCloseTo(-122.1);
+    expect(b.north).toBeCloseTo(45.55);
+    expect(b.east).toBeCloseTo(-122.0);
+  });
+});
+
 describe('buildOverpassQuery', () => {
   it('queries aerialway ways inside the cell bounds with geometry output', () => {
     const q = buildOverpassQuery('45.50,-122.05');
@@ -89,6 +106,45 @@ describe('getLiftLines', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     global.fetch = jest.fn();
+    // No local snapshot unless a test loads one: the Overpass path.
+    mockQueryLocal.mockResolvedValue(null);
+  });
+
+  describe('with a local snapshot loaded', () => {
+    it('answers from the snapshot without touching the cache or Overpass', async () => {
+      mockQueryLocal.mockResolvedValueOnce([LINE]);
+
+      const result = await getLiftLines(IN_CELL_POINTS);
+
+      expect(result).toEqual({ geometryAvailable: true, liftLines: [LINE] });
+      // The same area the Overpass path would search: the covering cell.
+      const bbox = mockQueryLocal.mock.calls[0][0];
+      expect(bbox.south).toBeCloseTo(45.5);
+      expect(bbox.west).toBeCloseTo(-122.05);
+      expect(bbox.north).toBeCloseTo(45.55);
+      expect(bbox.east).toBeCloseTo(-122.0);
+      expect(mockFindMany).not.toHaveBeenCalled();
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('treats an empty snapshot answer as a complete "no lifts here"', async () => {
+      mockQueryLocal.mockResolvedValueOnce([]);
+
+      const result = await getLiftLines(IN_CELL_POINTS);
+
+      expect(result).toEqual({ geometryAvailable: true, liftLines: [] });
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('still refuses an oversized ride, so either source gives the same answer', async () => {
+      const result = await getLiftLines([
+        { lat: 44.0, lng: -122.0 },
+        { lat: 45.0, lng: -121.0 },
+      ]);
+
+      expect(result).toEqual({ geometryAvailable: false, liftLines: [], reason: 'too_large' });
+      expect(mockQueryLocal).not.toHaveBeenCalled();
+    });
   });
 
   it('serves a fresh cache hit without touching Overpass', async () => {
