@@ -1,9 +1,19 @@
 const mockSet = jest.fn();
 const mockGet = jest.fn();
+const mockMget = jest.fn();
+const mockExec = jest.fn();
+const multiCalls: Array<[string, ...unknown[]]> = [];
 let redisReady = true;
 
 jest.mock('./redis', () => ({
-  getRedisConnection: () => ({ set: mockSet, get: mockGet }),
+  getRedisConnection: () => {
+    const chain = {
+      incr: (...a: unknown[]) => (multiCalls.push(['incr', ...a]), chain),
+      expire: (...a: unknown[]) => (multiCalls.push(['expire', ...a]), chain),
+      exec: mockExec,
+    };
+    return { set: mockSet, get: mockGet, mget: mockMget, multi: () => chain };
+  },
   isRedisReady: () => redisReady,
 }));
 
@@ -14,6 +24,8 @@ jest.mock('./logger', () => ({
 import {
   BULK_SHARE,
   checkStravaBudget,
+  countStravaRead,
+  getOwnStravaReads,
   getStravaRateLimitSnapshot,
   parseStravaRateLimit,
   recordStravaRateLimit,
@@ -37,8 +49,13 @@ const snapshot = (over: Partial<StravaRateLimitSnapshot> = {}): StravaRateLimitS
 beforeEach(() => {
   mockSet.mockReset();
   mockGet.mockReset();
+  mockMget.mockReset();
+  mockExec.mockReset();
+  multiCalls.length = 0;
   redisReady = true;
 });
+
+const NO_READS = { short: 0, daily: 0 };
 
 describe('parseStravaRateLimit', () => {
   it('prefers the read limit, which is the tighter one for stream fetches', () => {
@@ -132,19 +149,74 @@ describe('getStravaRateLimitSnapshot', () => {
   });
 });
 
+describe('countStravaRead / getOwnStravaReads', () => {
+  it('counts a read against this quarter hour and today, each with an expiry', async () => {
+    await countStravaRead(NOW);
+    const q = Math.floor(NOW.getTime() / (15 * 60 * 1000));
+    const d = Math.floor(NOW.getTime() / (24 * 60 * 60 * 1000));
+    expect(multiCalls).toEqual([
+      ['incr', `strava:reads:q:${q}`],
+      ['expire', `strava:reads:q:${q}`, 1800],
+      ['incr', `strava:reads:d:${d}`],
+      ['expire', `strava:reads:d:${d}`, 172800],
+    ]);
+    expect(mockExec).toHaveBeenCalledTimes(1);
+  });
+
+  it('never throws when counting', async () => {
+    mockExec.mockRejectedValueOnce(new Error('READONLY'));
+    await expect(countStravaRead(NOW)).resolves.toBeUndefined();
+  });
+
+  it('reads the current windows, treating missing keys as zero', async () => {
+    mockMget.mockResolvedValueOnce(['12', null]);
+    await expect(getOwnStravaReads(NOW)).resolves.toEqual({ short: 12, daily: 0 });
+  });
+
+  it('returns null when Redis cannot say', async () => {
+    mockMget.mockRejectedValueOnce(new Error('ECONNRESET'));
+    await expect(getOwnStravaReads(NOW)).resolves.toBeNull();
+    redisReady = false;
+    await expect(getOwnStravaReads(NOW)).resolves.toBeNull();
+  });
+});
+
 describe('checkStravaBudget', () => {
   it('allows a batch that fits in the bulk share of both windows', () => {
-    const check = checkStravaBudget(snapshot(), 25, NOW);
-    expect(check).toMatchObject({ allowed: true, shortUsed: 10, dailyUsed: 200 });
+    const check = checkStravaBudget(snapshot(), NO_READS, 25, NOW);
+    expect(check).toMatchObject({ allowed: true, shortUsed: 10, dailyUsed: 200, limitsFrom: 'strava-headers' });
     expect(BULK_SHARE).toBe(0.5);
   });
 
-  it('allows one measuring batch when no usage has been recorded', () => {
-    expect(checkStravaBudget(null, 25, NOW)).toMatchObject({ allowed: true, shortLimit: null });
+  it('uses Strava\'s standard read limits and our own count when no headers were seen', () => {
+    // The 2026-10-24 production run: no snapshot ever recorded, 75 reads counted.
+    const check = checkStravaBudget(null, { short: 75, daily: 75 }, 25, NOW);
+    expect(check).toMatchObject({
+      allowed: false,
+      shortUsed: 75,
+      shortLimit: 100,
+      dailyLimit: 1000,
+      limitsFrom: 'defaults',
+    });
+    expect(checkStravaBudget(null, NO_READS, 25, NOW)).toMatchObject({ allowed: true, limitsFrom: 'defaults' });
+  });
+
+  it('refuses when the read count is unknown', () => {
+    const check = checkStravaBudget(snapshot(), null, 1, NOW);
+    expect(check).toMatchObject({ allowed: false, retryAfter: 60 });
+    expect(check.detail).toContain('unavailable');
+  });
+
+  it('uses the higher of the snapshot and our own count', () => {
+    expect(checkStravaBudget(snapshot({ shortUsage: 5 }), { short: 40, daily: 40 }, 25, NOW)).toMatchObject({
+      allowed: false,
+      shortUsed: 40,
+      dailyUsed: 200,
+    });
   });
 
   it('refuses a batch that would pass half the 15-minute limit, until the next quarter hour', () => {
-    const check = checkStravaBudget(snapshot({ shortUsage: 30 }), 25, NOW);
+    const check = checkStravaBudget(snapshot({ shortUsage: 30 }), NO_READS, 25, NOW);
     expect(check.allowed).toBe(false);
     // 22:20 -> 22:30
     expect(check.retryAfter).toBe(600);
@@ -152,20 +224,18 @@ describe('checkStravaBudget', () => {
   });
 
   it('refuses a batch that would pass half the daily limit, until midnight UTC', () => {
-    const check = checkStravaBudget(snapshot({ dailyUsage: 480 }), 25, NOW);
+    const check = checkStravaBudget(snapshot({ dailyUsage: 480 }), NO_READS, 25, NOW);
     expect(check.allowed).toBe(false);
     // 22:20 -> 24:00
     expect(check.retryAfter).toBe(100 * 60);
     expect(check.detail).toContain('today is 480/1000');
   });
 
-  it('counts usage from an earlier window as reset', () => {
-    // Recorded in the previous quarter hour and on the previous day.
+  it('counts snapshot usage from an earlier window as reset', () => {
     const old = snapshot({ shortUsage: 99, dailyUsage: 999, recordedAt: '2026-10-23T23:59:00Z' });
-    expect(checkStravaBudget(old, 25, NOW)).toMatchObject({ allowed: true, shortUsed: 0, dailyUsed: 0 });
+    expect(checkStravaBudget(old, NO_READS, 25, NOW)).toMatchObject({ allowed: true, shortUsed: 0, dailyUsed: 0 });
 
-    // Same day, previous quarter hour: only the short window has reset.
     const earlier = snapshot({ shortUsage: 99, dailyUsage: 480, recordedAt: '2026-10-24T22:10:00Z' });
-    expect(checkStravaBudget(earlier, 25, NOW)).toMatchObject({ allowed: false, shortUsed: 0, dailyUsed: 480 });
+    expect(checkStravaBudget(earlier, NO_READS, 25, NOW)).toMatchObject({ allowed: false, shortUsed: 0, dailyUsed: 480 });
   });
 });
