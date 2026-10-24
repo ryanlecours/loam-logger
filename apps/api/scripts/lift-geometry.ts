@@ -55,6 +55,18 @@ type Args = {
   allowShrink: boolean;
 };
 
+function valueOf(argv: string[], i: number): string {
+  const v = argv[i + 1];
+  if (v === undefined || v.startsWith('--')) throw new Error(`${argv[i]} needs a value`);
+  return v;
+}
+
+function numberOf(argv: string[], i: number): number {
+  const n = Number(valueOf(argv, i));
+  if (!Number.isFinite(n) || n < 0) throw new Error(`${argv[i]} must be a non-negative number`);
+  return n;
+}
+
 function parseArgs(argv: string[]): Args {
   const args: Args = {
     command: argv[0],
@@ -66,13 +78,13 @@ function parseArgs(argv: string[]): Args {
   };
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--out') args.out = argv[++i];
-    else if (a === '--in') args.in = argv[++i];
-    else if (a === '--geojsonseq') args.geojsonseq = argv[++i];
-    else if (a === '--osm-base') args.osmBase = argv[++i];
-    else if (a === '--endpoint') args.endpoint = argv[++i];
-    else if (a === '--tile-deg') args.tileDeg = Number(argv[++i]);
-    else if (a === '--pause-ms') args.pauseMs = Number(argv[++i]);
+    if (a === '--out') args.out = valueOf(argv, i++);
+    else if (a === '--in') args.in = valueOf(argv, i++);
+    else if (a === '--geojsonseq') args.geojsonseq = valueOf(argv, i++);
+    else if (a === '--osm-base') args.osmBase = valueOf(argv, i++);
+    else if (a === '--endpoint') args.endpoint = valueOf(argv, i++);
+    else if (a === '--tile-deg') args.tileDeg = numberOf(argv, i++);
+    else if (a === '--pause-ms') args.pauseMs = numberOf(argv, i++);
     else if (a === '--execute') args.execute = true;
     else if (a === '--allow-shrink') args.allowShrink = true;
     else throw new Error(`Unknown argument ${a}`);

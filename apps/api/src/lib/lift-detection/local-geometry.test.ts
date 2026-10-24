@@ -6,6 +6,7 @@ jest.mock('../prisma', () => ({
       create: jest.fn(),
       updateMany: jest.fn(),
       update: jest.fn(),
+      delete: jest.fn(),
     },
     liftGeometryLine: {
       findMany: jest.fn(),
@@ -36,6 +37,7 @@ const mockImportDeleteMany = prisma.liftGeometryImport.deleteMany as jest.Mock;
 const mockImportCreate = prisma.liftGeometryImport.create as jest.Mock;
 const mockImportUpdateMany = prisma.liftGeometryImport.updateMany as jest.Mock;
 const mockImportUpdate = prisma.liftGeometryImport.update as jest.Mock;
+const mockImportDelete = prisma.liftGeometryImport.delete as jest.Mock;
 const mockLineFindMany = prisma.liftGeometryLine.findMany as jest.Mock;
 const mockLineCreateMany = prisma.liftGeometryLine.createMany as jest.Mock;
 const mockLineDeleteMany = prisma.liftGeometryLine.deleteMany as jest.Mock;
@@ -175,18 +177,21 @@ describe('loadLiftGeometryDataset', () => {
     mockImportUpdateMany.mockReturnValue('supersede-op');
     mockImportUpdate.mockReturnValue('activate-op');
     mockTransaction.mockResolvedValue([]);
+    mockImportDelete.mockResolvedValue({});
   });
 
   it('loads under a LOADING import, then supersedes the old one and activates in one transaction', async () => {
-    mockImportFindFirst.mockResolvedValueOnce(ACTIVE);
+    mockImportFindFirst.mockResolvedValueOnce(ACTIVE).mockResolvedValueOnce(null);
     mockImportDeleteMany.mockResolvedValueOnce({ count: 1 });
     const lines = manyLines(20200);
 
     const result = await loadLiftGeometryDataset(dataset(lines));
 
     expect(result).toEqual({ importId: 'import-new', lineCount: 20200, previous: ACTIVE });
-    // An abandoned earlier load is cleared before anything is written.
-    expect(mockImportDeleteMany).toHaveBeenCalledWith({ where: { status: 'LOADING' } });
+    // An abandoned (stale) earlier load is cleared before anything is written.
+    expect(mockImportDeleteMany).toHaveBeenCalledWith({
+      where: { status: 'LOADING', createdAt: { lt: expect.any(Date) } },
+    });
     expect(mockImportCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: {
@@ -272,8 +277,8 @@ describe('loadLiftGeometryDataset', () => {
     expect(mockTransaction).toHaveBeenCalledTimes(1);
   });
 
-  it('leaves the active import in place when an insert fails', async () => {
-    mockImportFindFirst.mockResolvedValueOnce(ACTIVE);
+  it('leaves the active import in place and removes its own when an insert fails', async () => {
+    mockImportFindFirst.mockResolvedValueOnce(ACTIVE).mockResolvedValueOnce(null);
     mockLineCreateMany.mockRejectedValueOnce(new Error('connection reset'));
 
     await expect(loadLiftGeometryDataset(dataset(manyLines(20000)))).rejects.toThrow(
@@ -281,5 +286,18 @@ describe('loadLiftGeometryDataset', () => {
     );
     expect(mockTransaction).not.toHaveBeenCalled();
     expect(mockLineDeleteMany).not.toHaveBeenCalled();
+    expect(mockImportDelete).toHaveBeenCalledWith({ where: { id: 'import-new' } });
+  });
+
+  it('refuses to start while another load is recent, without clearing it', async () => {
+    mockImportFindFirst
+      .mockResolvedValueOnce(ACTIVE)
+      .mockResolvedValueOnce({ id: 'import-other', createdAt: new Date() });
+
+    await expect(loadLiftGeometryDataset(dataset(manyLines(20000)))).rejects.toThrow(
+      'another load is probably running'
+    );
+    expect(mockImportDeleteMany).not.toHaveBeenCalled();
+    expect(mockImportCreate).not.toHaveBeenCalled();
   });
 });

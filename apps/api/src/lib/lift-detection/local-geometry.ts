@@ -185,6 +185,12 @@ export const MAX_SHRINK_RATIO = 0.9;
  */
 export const MIN_SNAPSHOT_LINES = 10_000;
 const INSERT_BATCH = 500;
+/**
+ * A LOADING import younger than this is taken to be another load still
+ * running, and an older one to be abandoned. A worldwide load takes a minute
+ * or two, so an hour leaves a wide margin either way.
+ */
+export const LOADING_STALE_MS = 60 * 60 * 1000;
 
 export interface LoadResult {
   importId: string;
@@ -197,8 +203,10 @@ export interface LoadResult {
  * inserted under a LOADING import that no reader looks at, then one
  * transaction supersedes the old import and activates the new; the old
  * import's lines are deleted afterwards, keeping its row as history. A load
- * that dies part way leaves a LOADING import, which the next load clears.
- * Not safe to run twice at once.
+ * whose inserts fail deletes its own import; one killed part way leaves a
+ * LOADING import, which the next load clears once it is stale. A load
+ * refuses to start while a recent LOADING import exists, so two operators
+ * cannot clear each other's work.
  */
 export async function loadLiftGeometryDataset(
   dataset: AerialwayDataset,
@@ -227,7 +235,20 @@ export async function loadLiftGeometryDataset(
     );
   }
 
-  const abandoned = await prisma.liftGeometryImport.deleteMany({ where: { status: 'LOADING' } });
+  const staleBefore = new Date(Date.now() - LOADING_STALE_MS);
+  const inFlight = await prisma.liftGeometryImport.findFirst({
+    where: { status: 'LOADING', createdAt: { gte: staleBefore } },
+    select: { id: true, createdAt: true },
+  });
+  if (inFlight) {
+    throw new Error(
+      `Import ${inFlight.id} has been loading since ${inFlight.createdAt.toISOString()}; ` +
+        'another load is probably running. Wait for it, or retry after an hour if it died.'
+    );
+  }
+  const abandoned = await prisma.liftGeometryImport.deleteMany({
+    where: { status: 'LOADING', createdAt: { lt: staleBefore } },
+  });
   if (abandoned.count > 0) log(`Cleared ${abandoned.count} abandoned LOADING import(s)`);
 
   const created = await prisma.liftGeometryImport.create({
@@ -239,25 +260,32 @@ export async function loadLiftGeometryDataset(
     select: { id: true },
   });
 
-  for (let i = 0; i < dataset.lines.length; i += INSERT_BATCH) {
-    const batch = dataset.lines.slice(i, i + INSERT_BATCH);
-    await prisma.liftGeometryLine.createMany({
-      data: batch.map((line) => {
-        const b = lineBounds(line);
-        return {
-          importId: created.id,
-          osmId: line.id,
-          name: line.name ?? null,
-          kind: line.kind,
-          coordinates: line.coordinates as unknown as object[],
-          minLat: b.south,
-          maxLat: b.north,
-          minLng: b.west,
-          maxLng: b.east,
-        };
-      }),
-    });
-    log(`Inserted ${Math.min(i + INSERT_BATCH, dataset.lines.length)} / ${dataset.lines.length}`);
+  try {
+    for (let i = 0; i < dataset.lines.length; i += INSERT_BATCH) {
+      const batch = dataset.lines.slice(i, i + INSERT_BATCH);
+      await prisma.liftGeometryLine.createMany({
+        data: batch.map((line) => {
+          const b = lineBounds(line);
+          return {
+            importId: created.id,
+            osmId: line.id,
+            name: line.name ?? null,
+            kind: line.kind,
+            coordinates: line.coordinates as unknown as object[],
+            minLat: b.south,
+            maxLat: b.north,
+            minLng: b.west,
+            maxLng: b.east,
+          };
+        }),
+      });
+      log(`Inserted ${Math.min(i + INSERT_BATCH, dataset.lines.length)} / ${dataset.lines.length}`);
+    }
+  } catch (err) {
+    // Best effort: the lines cascade with the import. If this fails too, the
+    // next load clears it once stale.
+    await prisma.liftGeometryImport.delete({ where: { id: created.id } }).catch(() => undefined);
+    throw err;
   }
 
   await prisma.$transaction([
