@@ -24,6 +24,10 @@ import {
 
 export const DEFAULT_SNAPSHOT_ENDPOINT = 'https://overpass-api.de/api/interpreter';
 const USER_AGENT = 'loam-logger (component wear tracking; lift geometry snapshot)';
+// 32 tiles. The aerialway tag index keeps even a dense tile (the Alps and
+// Scandinavia share one) cheap to answer, and fewer requests means fewer
+// chances to land on a busy instance; finer tiles only add round trips.
+export const DEFAULT_TILE_DEG = 45;
 
 const QUERY_TIMEOUT_S = 180;
 // Overpass may hold the connection for the whole server-side timeout before
@@ -126,7 +130,7 @@ export async function fetchAerialwaySnapshot(opts: SnapshotOptions = {}): Promis
   const fetchImpl = opts.fetchImpl ?? fetch;
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const log = opts.log ?? (() => undefined);
-  const tiles = worldTiles(opts.tileDeg ?? 20);
+  const tiles = worldTiles(opts.tileDeg ?? DEFAULT_TILE_DEG);
 
   // A lift crossing a tile edge comes back from both tiles; key by OSM id.
   const byId = new Map<string, LiftLine>();

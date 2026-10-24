@@ -9,7 +9,7 @@
  *
  * Usage (from apps/api):
  *   npx tsx scripts/lift-geometry.ts fetch --out <file.json.gz>
- *       [--endpoint <overpass interpreter url>] [--tile-deg 20] [--pause-ms 2000]
+ *       [--endpoint <overpass interpreter url>] [--tile-deg 45] [--pause-ms 2000]
  *   npx tsx scripts/lift-geometry.ts convert --geojsonseq <aerialways.geojsonseq> --out <file.json.gz>
  *       [--osm-base <ISO date of the extract>]   (osmium fallback when Overpass will not serve)
  *   DATABASE_URL="…" npx tsx scripts/lift-geometry.ts load --in <file.json.gz>             # dry run
@@ -30,6 +30,7 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import { prisma } from '../src/lib/prisma';
 import {
   DEFAULT_SNAPSHOT_ENDPOINT,
+  DEFAULT_TILE_DEG,
   datasetFromOsmiumExport,
   fetchAerialwaySnapshot,
 } from '../src/lib/lift-detection/aerialway-snapshot';
@@ -58,7 +59,7 @@ function parseArgs(argv: string[]): Args {
   const args: Args = {
     command: argv[0],
     endpoint: DEFAULT_SNAPSHOT_ENDPOINT,
-    tileDeg: 20,
+    tileDeg: DEFAULT_TILE_DEG,
     pauseMs: 2_000,
     execute: false,
     allowShrink: false,

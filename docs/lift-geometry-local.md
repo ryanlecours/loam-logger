@@ -72,7 +72,7 @@ answer of "no lifts here".
 
 ### Source of the snapshot
 
-1. **Overpass, from a machine that can reach it** (default): the world in 20°
+1. **Overpass, from a machine that can reach it** (default): the world in 45°
    tiles, one at a time with a 2 s pause, retrying a busy tile after 30, 60,
    120 and 240 s. Use `--endpoint` for another instance. As of 2026-10-24,
    maps.mail.ru answered when overpass-api.de did not.
