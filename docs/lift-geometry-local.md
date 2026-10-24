@@ -23,16 +23,20 @@ environment that has no snapshot loaded.
 |---|---|---|---|
 | Ride-time dependency | None: Postgres only | Still a public service per uncached cell | Our own service |
 | Works today | Yes, once loaded | Only if a mirror answers Railway; mirrors are as overloaded and have the same "not for automated use" policy | Weeks of setup |
-| Cost | Two small tables (tens of thousands of rows) | None | A server with hundreds of GB of disk for the planet DB, plus updates |
+| Cost | Two small tables (about 40,000 rows) | None | A server with hundreds of GB of disk for the planet DB, plus updates |
 | Freshness | As of the last refresh (lifts change on a scale of years) | Live, cached 180 days | Live |
 | Operations | A command twice a year | None, until every mirror is down | A service to patch, monitor, and keep in sync |
 
 Mirrors fail the same way the primary did: on 2026-10-24 overpass-api.de
-answered 502 "at capacity" from a home machine, overpass.kumi.systems and
-overpass.private.coffee did not answer at all, and only maps.mail.ru served a
-query. The public instance's own 502 page asks automated users to run their
-own copy. Self-hosting a full Overpass to look up a few tens of thousands of
-lines that barely change is out of proportion.
+flapped between 502 "at capacity" and normal answers from a home machine,
+overpass.kumi.systems and overpass.private.coffee did not answer at all, and
+maps.mail.ru served a small query but its proxy gives up after about 18 s, so
+anything larger comes back 504. The public instance's own 502 page asks
+automated users to run their own copy. Self-hosting a full Overpass to look up
+about 40,000 lines that barely change is out of proportion.
+
+Size, measured 2026-10-24: OSM has 40,201 ways tagged `aerialway` worldwide
+(`way["aerialway"]; out count;` on overpass-api.de, 75 s).
 
 ### Why a new table rather than seeding `OverpassCache`
 
@@ -66,16 +70,19 @@ answer of "no lifts here".
   import untouched.
 - Guards: a snapshot is fetched all or nothing (a tile that keeps failing
   aborts the run, because a missing tile would load as "no lifts" there); a
-  load refuses fewer than 10,000 lines (a regional Overpass instance such as
-  overpass.osm.ch answers a worldwide query without error) and refuses a
+  load refuses fewer than 10,000 lines, a quarter of the real count (a
+  regional Overpass instance such as overpass.osm.ch answers a worldwide
+  query without error), and refuses a
   snapshot under 90% of the active one. `--allow-shrink` overrides both.
 
 ### Source of the snapshot
 
 1. **Overpass, from a machine that can reach it** (default): the world in 45°
    tiles, one at a time with a 2 s pause, retrying a busy tile after 30, 60,
-   120 and 240 s. Use `--endpoint` for another instance. As of 2026-10-24,
-   maps.mail.ru answered when overpass-api.de did not.
+   120 and 240 s. A 45° tile takes about 30 s on overpass-api.de when it has
+   capacity. `--endpoint` picks another instance, but it must cover the whole
+   world and allow long queries (maps.mail.ru does not: its proxy 504s after
+   about 18 s).
 2. **osmium, when no Overpass instance will serve it**: filter a planet file
    or Geofabrik continent extracts, then `convert` the export (commands
    below). Heavy (the planet is about 80 GB) but needs no third-party service
@@ -141,10 +148,11 @@ here runs a migration by hand: the tables arrive through Railway's boot-time
 ### 2. Fetch and load the snapshot
 
 ```bash
-# On a machine that can reach an Overpass instance. Takes 10 minutes to a few
-# hours depending on how busy the instance is; the log shows each tile.
-npx tsx scripts/lift-geometry.ts fetch --out ~/aerialways-2026-10.json.gz \
-  --endpoint https://maps.mail.ru/osm/tools/overpass/api/interpreter
+# On a machine that can reach overpass-api.de. About 20 minutes when the
+# instance has capacity, longer when it is busy; the log shows each tile.
+# If a tile exhausts its retries the run aborts with nothing written: re-run
+# later (quiet hours in Europe help).
+npx tsx scripts/lift-geometry.ts fetch --out ~/aerialways-2026-10.json.gz
 ```
 
 If no Overpass instance will serve it, use osmium instead (Geofabrik
