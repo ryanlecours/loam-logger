@@ -120,6 +120,16 @@ describe('getStravaRateLimitSnapshot', () => {
     mockGet.mockResolvedValueOnce(JSON.stringify(snapshot()));
     await expect(getStravaRateLimitSnapshot()).resolves.toEqual(snapshot());
   });
+
+  it.each([
+    ['a bad date', { ...snapshot(), recordedAt: 'yesterday' }],
+    ['a missing figure', { ...snapshot(), dailyUsage: undefined }],
+    ['an unknown kind', { ...snapshot(), kind: 'write' }],
+    ['not JSON', 'nope'],
+  ])('treats a stored value with %s as unknown rather than as reset usage', async (_label, value) => {
+    mockGet.mockResolvedValueOnce(typeof value === 'string' ? value : JSON.stringify(value));
+    await expect(getStravaRateLimitSnapshot()).resolves.toBeNull();
+  });
 });
 
 describe('checkStravaBudget', () => {

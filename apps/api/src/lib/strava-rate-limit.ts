@@ -80,7 +80,18 @@ export async function getStravaRateLimitSnapshot(): Promise<StravaRateLimitSnaps
   if (!isRedisReady()) return null;
   try {
     const raw = await getRedisConnection().get(SNAPSHOT_KEY);
-    return raw ? (JSON.parse(raw) as StravaRateLimitSnapshot) : null;
+    if (!raw) return null;
+    const s = JSON.parse(raw) as Partial<StravaRateLimitSnapshot>;
+    // A malformed value would read as "usage reset" and let batches through
+    // unchecked; treat it as unknown instead.
+    const valid =
+      (s.kind === 'read' || s.kind === 'overall') &&
+      [s.shortLimit, s.shortUsage, s.dailyLimit, s.dailyUsage].every(
+        (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0
+      ) &&
+      typeof s.recordedAt === 'string' &&
+      !Number.isNaN(new Date(s.recordedAt).getTime());
+    return valid ? (s as StravaRateLimitSnapshot) : null;
   } catch (err) {
     logger.warn({ err }, '[StravaRateLimit] Could not read usage');
     return null;
@@ -149,7 +160,7 @@ export function checkStravaBudget(
       ...base,
       allowed: false,
       retryAfter: Math.ceil((DAY_MS - (t % DAY_MS)) / 1000),
-      detail: `Strava ${label} usage today is ${dailyUsed}/${snapshot.dailyLimit}; ${requests} more would pass the ${BULK_SHARE * 100}% bulk share`,
+      detail: `Strava ${label} usage today is ${dailyUsed}/${snapshot.dailyLimit}; ${requests} more would pass the ${Math.round(BULK_SHARE * 100)}% bulk share`,
     };
   }
   if (shortUsed + requests > snapshot.shortLimit * BULK_SHARE) {
@@ -157,7 +168,7 @@ export function checkStravaBudget(
       ...base,
       allowed: false,
       retryAfter: Math.ceil((QUARTER_HOUR_MS - (t % QUARTER_HOUR_MS)) / 1000),
-      detail: `Strava ${label} usage this 15 minutes is ${shortUsed}/${snapshot.shortLimit}; ${requests} more would pass the ${BULK_SHARE * 100}% bulk share`,
+      detail: `Strava ${label} usage this 15 minutes is ${shortUsed}/${snapshot.shortLimit}; ${requests} more would pass the ${Math.round(BULK_SHARE * 100)}% bulk share`,
     };
   }
   return {

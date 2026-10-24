@@ -266,6 +266,12 @@ if (res.code === 'STRAVA_BUDGET') {
 
 `counts.unfetched` will not reach zero: activities with no GPS stream (Strava
 returns none) or no altitude keep no stream, and the cursor walks past them.
+Each such ride costs a Strava read every time a walk reaches it, so if the
+loop stops, resume it from its last `nextCursor` rather than starting over.
+
+The budget check reads usage Strava reported after the previous batch: a new
+batch is refused with 409 until the lift queue has drained, so by then every
+read of the previous batch has happened and been recorded.
 
 ### Refresh (April and October)
 
