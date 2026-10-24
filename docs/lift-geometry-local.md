@@ -28,12 +28,15 @@ environment that has no snapshot loaded.
 | Operations | A command twice a year | None, until every mirror is down | A service to patch, monitor, and keep in sync |
 
 Mirrors fail the same way the primary did: on 2026-10-24 overpass-api.de
-flapped between 502 "at capacity" and normal answers from a home machine,
-overpass.kumi.systems and overpass.private.coffee did not answer at all, and
-maps.mail.ru served a small query but its proxy gives up after about 18 s, so
-anything larger comes back 504. The public instance's own 502 page asks
-automated users to run their own copy. Self-hosting a full Overpass to look up
-about 40,000 lines that barely change is out of proportion.
+flapped between 502 "at capacity" and normal answers from a home machine, and
+overpass.kumi.systems and overpass.private.coffee did not answer at all. No
+public Overpass instance hosted in the US was found. Mirrors also raise a
+trust question: whatever an instance returns becomes the lift geometry for
+every ride, and some public mirrors are under Russian registry control (for
+example maps.mail.ru), which this project does not use. The public instance's
+own 502 page asks automated users to run their own copy. Self-hosting a full
+Overpass to look up about 40,000 lines that barely change is out of
+proportion.
 
 Size, measured 2026-10-24: OSM has 40,201 ways tagged `aerialway` worldwide
 (`way["aerialway"]; out count;` on overpass-api.de, 75 s).
@@ -77,16 +80,27 @@ answer of "no lifts here".
 
 ### Source of the snapshot
 
-1. **Overpass, from a machine that can reach it** (default): the world in 45°
-   tiles, one at a time with a 2 s pause, retrying a busy tile after 30, 60,
-   120 and 240 s. A 45° tile takes about 30 s on overpass-api.de when it has
-   capacity. `--endpoint` picks another instance, but it must cover the whole
-   world and allow long queries (maps.mail.ru does not: its proxy 504s after
-   about 18 s).
-2. **osmium, when no Overpass instance will serve it**: filter a planet file
-   or Geofabrik continent extracts, then `convert` the export (commands
-   below). Heavy (the planet is about 80 GB) but needs no third-party service
-   to be up.
+1. **Overpass, from a machine that can reach it** (default): overpass-api.de,
+   the main instance, run by FOSSGIS e.V. (Germany) for the OSM community.
+   The world in 45° tiles, one at a time with a 2 s pause, retrying a busy
+   tile after 30, 60, 120 and 240 s. A 45° tile takes about 30 s when the
+   instance has capacity.
+2. **osmium over the US-hosted planet file**, when overpass-api.de will not
+   serve it: AWS Open Data publishes the full OSM planet weekly in the
+   `osm-pds` bucket (on 2026-10-24 the latest was `2026/planet-261019.osm.pbf`,
+   95.5 GB, with an `.md5` beside it). Filter it with osmium and `convert` the
+   export (commands below). Heavy, but it needs no third-party service to be
+   up and keeps the whole path on US infrastructure.
+
+Endpoint policy, enforced in code:
+
+- `fetch` only talks to overpass-api.de. Any other instance needs
+  `--allow-untrusted-endpoint`, meant for one we run ourselves; it must be
+  https and cover the whole world.
+- A host under `.ru`, `.su` or `.рф` is refused even with that flag, and
+  `load` refuses a snapshot file whose recorded source is on one.
+- At ride time, an `OVERPASS_API_BASE` on one of those domains is ignored
+  (logged as an error) and the default instance is used.
 
 ### OpenStreetMap licence (ODbL 1.0)
 
@@ -155,15 +169,18 @@ here runs a migration by hand: the tables arrive through Railway's boot-time
 npx tsx scripts/lift-geometry.ts fetch --out ~/aerialways-2026-10.json.gz
 ```
 
-If no Overpass instance will serve it, use osmium instead (Geofabrik
-continent extracts work too; run each and concatenate the `.geojsonseq`
-files):
+If overpass-api.de will not serve it, use osmium over the AWS-hosted planet
+instead (pick the newest key under `2026/` in the listing):
 
 ```bash
-osmium tags-filter planet-latest.osm.pbf w/aerialway -o aerialways.osm.pbf
+aws s3 ls --no-sign-request s3://osm-pds/2026/ | grep 'osm.pbf$' | tail -1
+aws s3 cp --no-sign-request s3://osm-pds/2026/planet-261019.osm.pbf .
+aws s3 cp --no-sign-request s3://osm-pds/2026/planet-261019.osm.pbf.md5 .
+md5sum planet-261019.osm.pbf; cat planet-261019.osm.pbf.md5   # must match
+osmium tags-filter planet-261019.osm.pbf w/aerialway -o aerialways.osm.pbf
 osmium export aerialways.osm.pbf -f geojsonseq --add-unique-id=type_id -o aerialways.geojsonseq
 npx tsx scripts/lift-geometry.ts convert --geojsonseq aerialways.geojsonseq \
-  --out ~/aerialways-2026-10.json.gz --osm-base <the extract's date, ISO>
+  --out ~/aerialways-2026-10.json.gz --osm-base 2026-10-19T00:00:00Z   # the planet's date
 ```
 
 Load it. `load` is a dry run unless `--execute` is given, and always prints the

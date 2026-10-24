@@ -16,6 +16,8 @@ jest.mock('./local-geometry', () => ({
 import {
   getLiftLines,
   boundsForCells,
+  isBlockedOverpassUrl,
+  resolveOverpassBase,
   cellKeysForPoints,
   buildOverpassQuery,
   parseOverpassAerialways,
@@ -61,6 +63,30 @@ describe('cellKeysForPoints', () => {
     expect(keys.sort()).toEqual(
       ['45.45,-122.10', '45.45,-122.05', '45.50,-122.10', '45.50,-122.05'].sort()
     );
+  });
+});
+
+describe('resolveOverpassBase', () => {
+  it('uses the main instance when nothing is configured', () => {
+    expect(resolveOverpassBase(undefined)).toBe('https://overpass-api.de/api/interpreter');
+  });
+
+  it('keeps a configured instance on an allowed domain', () => {
+    expect(resolveOverpassBase('https://overpass.example.com/api/interpreter')).toBe(
+      'https://overpass.example.com/api/interpreter'
+    );
+  });
+
+  it('ignores a configured instance on a blocked domain', () => {
+    expect(resolveOverpassBase('https://maps.mail.ru/osm/tools/overpass/api/interpreter')).toBe(
+      'https://overpass-api.de/api/interpreter'
+    );
+  });
+
+  it('treats a value that is not a URL as blocked', () => {
+    expect(isBlockedOverpassUrl('not a url')).toBe(true);
+    // A domain merely containing "ru" is not blocked.
+    expect(isBlockedOverpassUrl('https://overpass.truenorth.com/api/interpreter')).toBe(false);
   });
 });
 

@@ -10,6 +10,8 @@
  * Usage (from apps/api):
  *   npx tsx scripts/lift-geometry.ts fetch --out <file.json.gz>
  *       [--endpoint <overpass interpreter url>] [--tile-deg 45] [--pause-ms 2000]
+ *       [--allow-untrusted-endpoint]   an endpoint other than overpass-api.de, e.g.
+ *                                      one we self-host; blocked domains are refused
  *   npx tsx scripts/lift-geometry.ts convert --geojsonseq <aerialways.geojsonseq> --out <file.json.gz>
  *       [--osm-base <ISO date of the extract>]   (osmium fallback when Overpass will not serve)
  *   DATABASE_URL="…" npx tsx scripts/lift-geometry.ts load --in <file.json.gz>             # dry run
@@ -41,6 +43,7 @@ import {
   loadLiftGeometryDataset,
   validateAerialwayDataset,
 } from '../src/lib/lift-detection/local-geometry';
+import { isBlockedOverpassUrl } from '../src/lib/lift-detection/overpass';
 
 type Args = {
   command?: string;
@@ -53,6 +56,7 @@ type Args = {
   pauseMs: number;
   execute: boolean;
   allowShrink: boolean;
+  allowUntrustedEndpoint: boolean;
 };
 
 function valueOf(argv: string[], i: number): string {
@@ -75,6 +79,7 @@ function parseArgs(argv: string[]): Args {
     pauseMs: 2_000,
     execute: false,
     allowShrink: false,
+    allowUntrustedEndpoint: false,
   };
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
@@ -87,6 +92,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--pause-ms') args.pauseMs = numberOf(argv, i++);
     else if (a === '--execute') args.execute = true;
     else if (a === '--allow-shrink') args.allowShrink = true;
+    else if (a === '--allow-untrusted-endpoint') args.allowUntrustedEndpoint = true;
     else throw new Error(`Unknown argument ${a}`);
   }
   return args;
@@ -115,6 +121,7 @@ async function fetchCommand(args: Args) {
   console.log(`Fetching aerialways worldwide from ${args.endpoint} in ${args.tileDeg}° tiles`);
   const dataset = await fetchAerialwaySnapshot({
     endpoint: args.endpoint,
+    allowUntrustedEndpoint: args.allowUntrustedEndpoint,
     tileDeg: args.tileDeg,
     pauseMs: args.pauseMs,
     log: (msg) => console.log(msg),
@@ -151,6 +158,11 @@ async function loadCommand(args: Args) {
   const raw = readFileSync(args.in);
   const text = args.in.endsWith('.gz') ? gunzipSync(raw).toString('utf8') : raw.toString('utf8');
   const dataset = validateAerialwayDataset(JSON.parse(text));
+  // A file fetched before the endpoint guard existed, or by hand, still
+  // records where it came from.
+  if (dataset.source.startsWith('overpass:') && isBlockedOverpassUrl(dataset.source.slice('overpass:'.length))) {
+    throw new Error(`Refusing a snapshot from a blocked domain (${dataset.source})`);
+  }
   const target = describeDatabase();
 
   console.log(

@@ -17,10 +17,40 @@ import { logger } from '../logger';
 import type { LiftLine, RidePoint } from './detector';
 import { queryLocalLiftLines, type BoundingBox } from './local-geometry';
 
+const DEFAULT_OVERPASS_API_BASE = 'https://overpass-api.de/api/interpreter';
+
+// Lift geometry decides what counts as riding for every ride, so it is never
+// taken from an instance under Russian registry control, whatever an
+// operator configures (some public mirrors are, e.g. maps.mail.ru).
+const BLOCKED_TLDS = ['ru', 'su', 'xn--p1ai'];
+
+/** True when the URL's host is under a blocked top-level domain (or is not a URL). */
+export function isBlockedOverpassUrl(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase().replace(/\.$/, '');
+  } catch {
+    return true;
+  }
+  return BLOCKED_TLDS.some((tld) => host === tld || host.endsWith(`.${tld}`));
+}
+
+/** The configured base, or the default when it is unset or blocked. */
+export function resolveOverpassBase(configured: string | undefined): string {
+  if (!configured) return DEFAULT_OVERPASS_API_BASE;
+  if (isBlockedOverpassUrl(configured)) {
+    logger.error(
+      { configured },
+      '[Overpass] OVERPASS_API_BASE is on a blocked domain; using the default instance'
+    );
+    return DEFAULT_OVERPASS_API_BASE;
+  }
+  return configured;
+}
+
 // Must end in `/interpreter`: probeOverpass derives the instance's `/status`
 // page from it, and skips the probe (with a warning) for any other shape.
-const OVERPASS_API_BASE =
-  process.env.OVERPASS_API_BASE || 'https://overpass-api.de/api/interpreter';
+const OVERPASS_API_BASE = resolveOverpassBase(process.env.OVERPASS_API_BASE);
 // Identify ourselves per Overpass usage policy.
 const USER_AGENT = 'loam-logger (component wear tracking; lift detection)';
 

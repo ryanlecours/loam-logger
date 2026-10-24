@@ -12,7 +12,7 @@
  * as "no lifts here" for every ride in it.
  */
 
-import { parseOverpassAerialways } from './overpass';
+import { isBlockedOverpassUrl, parseOverpassAerialways } from './overpass';
 import type { LiftLine } from './detector';
 import {
   AERIALWAY_DATASET_FORMAT,
@@ -23,6 +23,32 @@ import {
 } from './local-geometry';
 
 export const DEFAULT_SNAPSHOT_ENDPOINT = 'https://overpass-api.de/api/interpreter';
+
+/**
+ * Hosts a snapshot may come from without an override. The snapshot becomes
+ * the lift geometry for every ride, so a broken or hostile instance would skew
+ * detection everywhere. overpass-api.de is the main instance, run by FOSSGIS
+ * e.V. for the OSM community. Any other instance (a self-hosted one, say)
+ * needs `allowUntrustedEndpoint`; a blocked domain is refused even then.
+ */
+export const TRUSTED_SNAPSHOT_HOSTS = ['overpass-api.de'];
+
+/** Throws unless the endpoint may serve a snapshot. */
+export function assertSnapshotEndpoint(endpoint: string, allowUntrusted = false): void {
+  if (isBlockedOverpassUrl(endpoint)) {
+    throw new Error(`Refusing ${endpoint}: snapshots are never taken from a blocked domain`);
+  }
+  const url = new URL(endpoint);
+  if (url.protocol !== 'https:') {
+    throw new Error(`Refusing ${endpoint}: a snapshot endpoint must use https`);
+  }
+  if (!allowUntrusted && !TRUSTED_SNAPSHOT_HOSTS.includes(url.hostname.toLowerCase())) {
+    throw new Error(
+      `Refusing ${endpoint}: not a trusted snapshot host (${TRUSTED_SNAPSHOT_HOSTS.join(', ')}); ` +
+        'pass allowUntrustedEndpoint for an instance you run or have vetted'
+    );
+  }
+}
 const USER_AGENT = 'loam-logger (component wear tracking; lift geometry snapshot)';
 // 32 tiles. The aerialway tag index keeps even a dense tile (the Alps and
 // Scandinavia share one) cheap to answer, and fewer requests means fewer
@@ -115,6 +141,8 @@ async function fetchTile(
 
 export interface SnapshotOptions {
   endpoint?: string;
+  /** Accept an endpoint outside TRUSTED_SNAPSHOT_HOSTS (never a blocked domain). */
+  allowUntrustedEndpoint?: boolean;
   tileDeg?: number;
   /** Pause between tiles, as a courtesy to the instance. */
   pauseMs?: number;
@@ -126,6 +154,7 @@ export interface SnapshotOptions {
 /** Queries every tile and merges the answers. Throws if any tile fails for good. */
 export async function fetchAerialwaySnapshot(opts: SnapshotOptions = {}): Promise<AerialwayDataset> {
   const endpoint = opts.endpoint ?? DEFAULT_SNAPSHOT_ENDPOINT;
+  assertSnapshotEndpoint(endpoint, opts.allowUntrustedEndpoint);
   const pauseMs = opts.pauseMs ?? 2_000;
   const fetchImpl = opts.fetchImpl ?? fetch;
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));

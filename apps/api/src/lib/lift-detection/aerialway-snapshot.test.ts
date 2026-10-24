@@ -1,6 +1,7 @@
 jest.mock('../prisma', () => ({ prisma: {} }));
 
 import {
+  assertSnapshotEndpoint,
   buildTileQuery,
   datasetFromOsmiumExport,
   fetchAerialwaySnapshot,
@@ -54,6 +55,34 @@ describe('buildTileQuery', () => {
   });
 });
 
+describe('assertSnapshotEndpoint', () => {
+  it('accepts the main instance', () => {
+    expect(() => assertSnapshotEndpoint('https://overpass-api.de/api/interpreter')).not.toThrow();
+  });
+
+  it('refuses another instance unless told it is vetted', () => {
+    expect(() => assertSnapshotEndpoint('https://overpass.example.com/api/interpreter')).toThrow(
+      'not a trusted snapshot host'
+    );
+    expect(() =>
+      assertSnapshotEndpoint('https://overpass.example.com/api/interpreter', true)
+    ).not.toThrow();
+  });
+
+  it.each([
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+    'https://overpass.example.su/api/interpreter',
+    'https://xn--80aswg.xn--p1ai/api/interpreter',
+    'https://MAPS.MAIL.RU./osm/tools/overpass/api/interpreter',
+  ])('refuses a blocked domain even with the override: %s', (endpoint) => {
+    expect(() => assertSnapshotEndpoint(endpoint, true)).toThrow('blocked domain');
+  });
+
+  it('refuses plain http', () => {
+    expect(() => assertSnapshotEndpoint('http://overpass-api.de/api/interpreter', true)).toThrow('https');
+  });
+});
+
 describe('fetchAerialwaySnapshot', () => {
   beforeEach(() => {
     noSleep.mockClear();
@@ -68,6 +97,7 @@ describe('fetchAerialwaySnapshot', () => {
 
     const dataset = await fetchAerialwaySnapshot({
       endpoint: 'https://overpass.example/api/interpreter',
+      allowUntrustedEndpoint: true,
       tileDeg: 90,
       fetchImpl: fetchImpl as unknown as typeof fetch,
       sleep: noSleep,
@@ -102,6 +132,20 @@ describe('fetchAerialwaySnapshot', () => {
     // Overpass asks for at least 30s after a 429.
     expect(noSleep).toHaveBeenNthCalledWith(1, 30_000);
     expect(noSleep).toHaveBeenNthCalledWith(2, 60_000);
+  });
+
+  it('checks the endpoint before sending anything', async () => {
+    const fetchImpl = jest.fn();
+
+    await expect(
+      fetchAerialwaySnapshot({
+        endpoint: 'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+        allowUntrustedEndpoint: true,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        sleep: noSleep,
+      })
+    ).rejects.toThrow('blocked domain');
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('aborts the whole snapshot when a tile keeps failing, rather than leave a hole', async () => {
