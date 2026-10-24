@@ -20,6 +20,14 @@ jest.mock('../lib/rate-limit', () => ({
   checkAdminRateLimit: jest.fn(),
 }));
 
+const mockGetStravaSnapshot = jest.fn();
+
+// The budget arithmetic is real; only the Redis read is stubbed.
+jest.mock('../lib/strava-rate-limit', () => ({
+  ...jest.requireActual('../lib/strava-rate-limit'),
+  getStravaRateLimitSnapshot: () => mockGetStravaSnapshot(),
+}));
+
 const mockGetJobCounts = jest.fn();
 
 jest.mock('../lib/queue', () => ({
@@ -493,7 +501,13 @@ describe('Admin lift validation routes', () => {
 
     beforeEach(() => {
       // degraded, analyzed, pending
-      mockRideCount.mockResolvedValueOnce(40).mockResolvedValueOnce(1015).mockResolvedValueOnce(3);
+      // degraded, analyzed, pending, unfetched
+      mockRideCount
+        .mockResolvedValueOnce(40)
+        .mockResolvedValueOnce(1015)
+        .mockResolvedValueOnce(3)
+        .mockResolvedValueOnce(1574);
+      mockGetStravaSnapshot.mockResolvedValue(null);
       mockRideUpdateMany.mockResolvedValue({ count: 1 });
     });
 
@@ -511,7 +525,7 @@ describe('Admin lift validation routes', () => {
         scope: 'degraded',
         // No snapshot loaded: jobs read geometry through Overpass.
         geometrySource: { kind: 'overpass' },
-        counts: { degraded: 40, analyzed: 1015, pending: 3 },
+        counts: { degraded: 40, analyzed: 1015, pending: 3, unfetched: 1574 },
         queued: 1,
         alreadyQueued: 1,
         failed: 0,
@@ -619,7 +633,7 @@ describe('Admin lift validation routes', () => {
       expect(res.body.data).toMatchObject({
         dryRun: true,
         scope: 'all',
-        counts: { degraded: 40, analyzed: 1015, pending: 3 },
+        counts: { degraded: 40, analyzed: 1015, pending: 3, unfetched: 1574 },
         queued: 0,
         nextCursor: null,
       });
@@ -627,6 +641,103 @@ describe('Admin lift validation routes', () => {
       expect(mockRideUpdateMany).not.toHaveBeenCalled();
       expect(mockEnqueue).not.toHaveBeenCalled();
       expect(mockRateLimit).not.toHaveBeenCalled();
+    });
+
+    describe('scope unfetched', () => {
+      const STRAVA_SNAPSHOT = {
+        kind: 'read',
+        shortLimit: 100,
+        shortUsage: 10,
+        dailyLimit: 1000,
+        dailyUsage: 200,
+        recordedAt: new Date().toISOString(),
+      };
+
+      it('selects Strava rides with coordinates, no stored stream and a connected owner', async () => {
+        mockRideFindMany.mockResolvedValueOnce(rows);
+        mockEnqueue.mockResolvedValue({ status: 'queued', jobId: 'a' });
+
+        const res = await request(app).post('/api/admin/lift/reanalyze').send({ scope: 'unfetched' });
+
+        expect(res.status).toBe(200);
+        expect(mockRideFindMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              stravaActivityId: { not: null },
+              startLat: { not: null },
+              startLng: { not: null },
+              stream: { is: null },
+              user: { tokens: { some: { provider: 'strava' } } },
+            },
+            // Each job is one Strava read, so batches are smaller by default.
+            take: 25,
+          })
+        );
+        // The worker fetches and stores the stream on the way.
+        expect(mockEnqueue).toHaveBeenCalledWith({ rideId: ids[0], force: true, requireGeometry: true });
+        expect(res.body.data.queued).toBe(2);
+        expect(res.body.data.stravaBudget).toMatchObject({ allowed: true, shortLimit: null });
+      });
+
+      it('caps an unfetched batch at 50', async () => {
+        mockRideFindMany.mockResolvedValue([]);
+
+        await request(app).post('/api/admin/lift/reanalyze').send({ scope: 'unfetched', limit: 200 });
+
+        expect(mockRideFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ take: 50 }));
+      });
+
+      it('refuses a batch that would pass half of Strava\'s budget, without spending the cooldown', async () => {
+        // 30 of 100 used this quarter hour: 25 more would pass 50.
+        mockGetStravaSnapshot.mockResolvedValue({ ...STRAVA_SNAPSHOT, shortUsage: 30 });
+
+        const res = await request(app).post('/api/admin/lift/reanalyze').send({ scope: 'unfetched' });
+
+        expect(res.status).toBe(429);
+        expect(res.body.code).toBe('STRAVA_BUDGET');
+        expect(res.body.error).toContain('30/100');
+        expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
+        expect(Number(res.headers['retry-after'])).toBeLessThanOrEqual(15 * 60);
+        expect(mockRateLimit).not.toHaveBeenCalled();
+        expect(mockRideFindMany).not.toHaveBeenCalled();
+        expect(mockEnqueue).not.toHaveBeenCalled();
+      });
+
+      it('lets a smaller batch through when it still fits', async () => {
+        mockGetStravaSnapshot.mockResolvedValue({ ...STRAVA_SNAPSHOT, shortUsage: 30 });
+        mockRideFindMany.mockResolvedValueOnce([]);
+
+        const res = await request(app)
+          .post('/api/admin/lift/reanalyze')
+          .send({ scope: 'unfetched', limit: 20 });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.stravaBudget).toMatchObject({ allowed: true, shortUsed: 30, dailyUsed: 200 });
+      });
+
+      it('reports the budget on a dry run without refusing or spending anything', async () => {
+        mockGetStravaSnapshot.mockResolvedValue({ ...STRAVA_SNAPSHOT, dailyUsage: 990 });
+
+        const res = await request(app)
+          .post('/api/admin/lift/reanalyze')
+          .send({ scope: 'unfetched', dryRun: true });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.counts.unfetched).toBe(1574);
+        expect(res.body.data.stravaBudget).toMatchObject({ allowed: false, dailyUsed: 990 });
+        expect(mockRateLimit).not.toHaveBeenCalled();
+        expect(mockEnqueue).not.toHaveBeenCalled();
+      });
+
+      it('does not consult the Strava budget for the other scopes', async () => {
+        mockGetStravaSnapshot.mockResolvedValue({ ...STRAVA_SNAPSHOT, dailyUsage: 999 });
+        mockRideFindMany.mockResolvedValueOnce([]);
+
+        const res = await request(app).post('/api/admin/lift/reanalyze').send({ scope: 'all' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.stravaBudget).toBeUndefined();
+      });
     });
 
     it('caps the limit at 200 and defaults it to 50', async () => {
