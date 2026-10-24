@@ -1,6 +1,6 @@
 import { logger } from './logger';
 import type { NormalizedStreams, RideStreamsResult } from './ride-streams';
-import { recordStravaRateLimit } from './strava-rate-limit';
+import { countStravaRead, recordStravaRateLimit } from './strava-rate-limit';
 
 // Full-resolution per-point streams for one activity. Cadence/heartrate/moving
 // cost nothing extra to request and are needed by lift detection (cadence
@@ -37,6 +37,10 @@ export async function fetchStravaStreams(
   const url =
     `https://www.strava.com/api/v3/activities/${stravaActivityId}/streams` +
     `?keys=${STREAM_KEYS}&key_by_type=true`;
+
+  // Counted before the request, so a fetch that fails still counts: the bulk
+  // lift re-analysis paces itself by this even when Strava sends no headers.
+  await countStravaRead();
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);

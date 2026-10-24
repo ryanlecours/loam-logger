@@ -1,9 +1,10 @@
 jest.mock('./strava-rate-limit', () => ({
   recordStravaRateLimit: jest.fn(async () => undefined),
+  countStravaRead: jest.fn(async () => undefined),
 }));
 
 import { fetchStravaStreams } from './strava-streams';
-import { recordStravaRateLimit } from './strava-rate-limit';
+import { countStravaRead, recordStravaRateLimit } from './strava-rate-limit';
 
 const okResponse = (body: unknown) =>
   ({
@@ -47,6 +48,13 @@ describe('fetchStravaStreams', () => {
 
     await expect(fetchStravaStreams('token-1', '12345')).rejects.toThrow('429');
     expect(recordStravaRateLimit).toHaveBeenCalledWith(limited.headers);
+  });
+
+  it('counts every fetch, a failed one included', async () => {
+    (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('ECONNRESET'));
+
+    await expect(fetchStravaStreams('token-1', '12345')).rejects.toThrow('ECONNRESET');
+    expect(countStravaRead).toHaveBeenCalledTimes(1);
   });
 
   it('returns no_streams on 404 (manual activity)', async () => {

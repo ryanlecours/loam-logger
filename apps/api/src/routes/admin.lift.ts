@@ -13,7 +13,11 @@ import {
 import { checkAdminRateLimit } from '../lib/rate-limit';
 import { enqueueLiftDetectionJob, getLiftQueue } from '../lib/queue';
 import { getActiveLiftGeometryImport, probeOverpass } from '../lib/lift-detection';
-import { checkStravaBudget, getStravaRateLimitSnapshot } from '../lib/strava-rate-limit';
+import {
+  checkStravaBudget,
+  getOwnStravaReads,
+  getStravaRateLimitSnapshot,
+} from '../lib/strava-rate-limit';
 import type { EnqueueLiftResult, LiftJobData } from '../lib/queue';
 import { logError } from '../lib/logger';
 
@@ -529,10 +533,13 @@ router.get('/queue', async (_req, res) => {
  * as null, so the scans do not run for every batch.
  *
  * Strava budget (scope unfetched only): Strava limits the whole app's reads
- * per 15 minutes and per day, shared with live syncing. Each stream fetch
- * records the usage Strava reports (lib/strava-rate-limit.ts), and a batch
- * is refused with 429 `STRAVA_BUDGET` and a Retry-After when it would take
- * either window past half its limit; the cooldown is not spent. With the
+ * per 15 minutes and per day, shared with live syncing. Each stream fetch is
+ * counted per window, and the usage Strava reports in its headers is kept
+ * too (lib/strava-rate-limit.ts); the higher of the two is used, against the
+ * limits Strava reported or its standard read limits. A batch is refused
+ * with 429 `STRAVA_BUDGET` and a Retry-After when it would take either
+ * window past half its limit, or when the count cannot be read; the cooldown
+ * is not spent. With the
  * default read limits (100 per 15 minutes, 1,000 a day) that is two batches
  * of 25 per quarter hour and about 500 rides a day. The response's
  * `stravaBudget` shows the usage the decision was based on. The count does
@@ -583,7 +590,9 @@ router.post('/reanalyze', async (req, res) => {
     // matters without one.
     const localGeometry = await getActiveLiftGeometryImport();
     const stravaBudget =
-      scope === 'unfetched' ? checkStravaBudget(await getStravaRateLimitSnapshot(), limit) : null;
+      scope === 'unfetched'
+        ? checkStravaBudget(await getStravaRateLimitSnapshot(), await getOwnStravaReads(), limit)
+        : null;
 
     if (!dryRun) {
       // Checked before the cooldown so a refused batch does not also cost
