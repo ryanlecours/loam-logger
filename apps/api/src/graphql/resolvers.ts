@@ -16,6 +16,7 @@ import { enqueueSyncJob, enqueueWeatherJob, enqueueLiftDetectionJob, enqueueGarm
 import { normalizeRecordedTrack, type RecordedTrackInput } from '../lib/recorded-track';
 import { saveRideStream } from '../lib/ride-stream-store';
 import { getRideTrack } from '../lib/ride-track';
+import { buildRideLift, countedElevationGainMeters, type LiftElevationFields } from '../lib/ride-lift';
 import { invalidateBikePrediction, getCachedAdvisorSummary, setCachedAdvisorSummary } from '../services/prediction/cache';
 import { generateSummary, DEFAULT_ADVISOR_MODEL } from '../services/advisor/summarize';
 import type { BikePredictionSummary } from '../services/prediction/types';
@@ -510,6 +511,29 @@ const parseTravel = (value: number | null | undefined) =>
 
 const componentLabel = (type: ComponentType) =>
   componentLabelMap[type] ?? formatComponentType(type);
+
+/**
+ * The lift-choice columns for a Ride parent, read from the row when the query
+ * selected them and batch-loaded when it did not (bikeHistory and friends use
+ * narrow selects).
+ */
+async function liftFieldsFor(
+  ride: { id: string } & Partial<LiftElevationFields>,
+  ctx: GraphQLContext
+): Promise<LiftElevationFields | null> {
+  if (
+    ride.elevationGainMeters !== undefined &&
+    ride.liftElevationGainMeters !== undefined &&
+    ride.countLiftElevation !== undefined
+  ) {
+    return {
+      elevationGainMeters: ride.elevationGainMeters,
+      liftElevationGainMeters: ride.liftElevationGainMeters,
+      countLiftElevation: ride.countLiftElevation,
+    };
+  }
+  return ctx.loaders.liftFieldsByRideId.load(ride.id);
+}
 
 const requireUserId = (ctx: GraphQLContext) => {
   const id = ctx.user?.id;
@@ -4658,6 +4682,47 @@ export const resolvers = {
       return track;
     },
 
+    setRideLiftElevation: async (
+      _: unknown,
+      { rideId, count }: { rideId: string; count?: boolean | null },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('setRideLiftElevation', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Owner-scoped read: another rider's ride and a missing one look the
+      // same, so the error is no existence oracle.
+      const ride = await prisma.ride.findFirst({
+        where: { id: rideId, userId },
+        select: { id: true, liftDurationSeconds: true },
+      });
+      if (!ride) {
+        throw new GraphQLError('Ride not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+      // A choice only means something on a ride with a detected lift. The
+      // detector writes liftDurationSeconds > 0 exactly when it stored
+      // segments, so this needs no second query.
+      if (!ride.liftDurationSeconds || ride.liftDurationSeconds <= 0) {
+        throw new GraphQLError('No lift was detected on this ride', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
+      // Elevation only, and nothing server-side reads the choice (component
+      // hours and wear stay on the raw columns), so no hour sync or
+      // prediction invalidation follows.
+      return prisma.ride.update({
+        where: { id: ride.id },
+        data: { countLiftElevation: count ?? null },
+      });
+    },
+
     bulkUpdateComponentBaselines: async (
       _: unknown,
       { input }: { input: BulkUpdateBaselinesInputGQL },
@@ -7295,6 +7360,35 @@ export const resolvers = {
       // Otherwise batch-load via DataLoader to avoid N+1 on list queries.
       return ctx.loaders.weatherByRideId.load(ride.id);
     },
+    // Cheap on list queries: the full ride row already carries the lift
+    // columns. Resolvers that read rides with a narrow select fall back to
+    // one batched lookup per request.
+    countedElevationGainMeters: async (
+      ride: { id: string } & Partial<LiftElevationFields>,
+      _args: unknown,
+      ctx: GraphQLContext
+    ) => {
+      const fields = await liftFieldsFor(ride, ctx);
+      return fields ? countedElevationGainMeters(fields) : ride.elevationGainMeters ?? 0;
+    },
+    lift: async (
+      ride: { id: string } & Partial<LiftElevationFields>,
+      _args: unknown,
+      ctx: GraphQLContext
+    ) => {
+      // Ride is only ever served to its owner, so no ownership check here;
+      // lift names never reach the shared-page types, which are separate.
+      const [fields, segments] = await Promise.all([
+        liftFieldsFor(ride, ctx),
+        ctx.loaders.liftSegmentsByRideId.load(ride.id),
+      ]);
+      return fields ? buildRideLift(fields, segments) : null;
+    },
+  },
+
+  RideLiftSegment: {
+    startTime: (seg: { startTime: Date }) => seg.startTime.toISOString(),
+    endTime: (seg: { endTime: Date }) => seg.endTime.toISOString(),
   },
 
   RideWeather: {

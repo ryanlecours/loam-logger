@@ -1,6 +1,12 @@
 import DataLoader from 'dataloader';
 import { prisma } from '../lib/prisma';
 import type { ServiceLog, RideWeather, SubscriptionTier, UserRole } from '@prisma/client';
+import {
+  batchLiftFieldsByRideId,
+  batchLiftSegmentsByRideId,
+  type LiftElevationFields,
+  type RideLiftSegmentResult,
+} from '../lib/ride-lift';
 
 /**
  * Minimal user shape for the per-request user loader. Covers tier-access
@@ -131,6 +137,12 @@ export function createDataLoaders() {
     ),
     tierUserById: new DataLoader<string, TierUserRow | null>(
       batchTierUserById
+    ),
+    liftFieldsByRideId: new DataLoader<string, LiftElevationFields | null>(
+      batchLiftFieldsByRideId
+    ),
+    liftSegmentsByRideId: new DataLoader<string, RideLiftSegmentResult[]>(
+      batchLiftSegmentsByRideId
     ),
   };
 }

@@ -72,6 +72,8 @@ export const MUTATION_RATE_LIMITS = {
   updateComponent: { windowSeconds: 60, maxRequests: 30 },
   /** requestRideTrack: max 10 stream fetches per hour per user (each costs a Strava API read) */
   requestRideTrack: { windowSeconds: 3600, maxRequests: 10 },
+  /** setRideLiftElevation: max 30 requests per minute per user (a toggle on the ride view) */
+  setRideLiftElevation: { windowSeconds: 60, maxRequests: 30 },
   /** createStravaGearMapping: max 10 requests per minute per user */
   createStravaGearMapping: { windowSeconds: 60, maxRequests: 10 },
   /** deleteStravaGearMapping: max 10 requests per minute per user */

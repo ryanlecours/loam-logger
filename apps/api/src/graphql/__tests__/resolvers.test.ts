@@ -29,6 +29,7 @@ jest.mock('../../lib/prisma', () => ({
       findFirst: jest.fn(),
       findUnique: jest.fn(),
       findMany: jest.fn(),
+      update: jest.fn(),
       updateMany: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
       aggregate: jest.fn(),
@@ -205,6 +206,8 @@ const createMockContext = (
     latestServiceLogByComponentId: { load: jest.fn() },
     weatherByRideId: { load: jest.fn() },
     tierUserById: { load: jest.fn().mockResolvedValue(tierUser) },
+    liftFieldsByRideId: { load: jest.fn() },
+    liftSegmentsByRideId: { load: jest.fn().mockResolvedValue([]) },
   },
   req: {
     // Only use default IP if ip is not explicitly passed in reqOverrides
@@ -8223,6 +8226,170 @@ describe('GraphQL Resolvers', () => {
       // The original request enqueued weather; the replay must not re-fire it.
       expect(enqueueWeatherJob).not.toHaveBeenCalled();
       expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('Ride lift detection', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const liftSegment = {
+    startTime: new Date('2026-08-01T10:00:00Z'),
+    endTime: new Date('2026-08-01T10:08:00Z'),
+    durationSeconds: 480,
+    elevationGainMeters: 400,
+    distanceMeters: 1500,
+    liftName: 'Garbanzo Express',
+    kind: 'CHAIRLIFT',
+  };
+
+  describe('Ride.countedElevationGainMeters', () => {
+    const resolver = resolvers.Ride.countedElevationGainMeters;
+
+    it('removes the lift climb from a full row by default, without a lookup', async () => {
+      const ctx = createMockContext('user-123');
+      const result = await resolver(
+        { id: 'ride-1', elevationGainMeters: 2000, liftElevationGainMeters: 1500, countLiftElevation: null },
+        {},
+        ctx as never
+      );
+      expect(result).toBe(500);
+      expect(ctx.loaders.liftFieldsByRideId.load).not.toHaveBeenCalled();
+    });
+
+    it('keeps the lift climb when the rider counts it', async () => {
+      const ctx = createMockContext('user-123');
+      const result = await resolver(
+        { id: 'ride-1', elevationGainMeters: 2000, liftElevationGainMeters: 1500, countLiftElevation: true },
+        {},
+        ctx as never
+      );
+      expect(result).toBe(2000);
+    });
+
+    it('batch-loads the lift columns when the parent came from a narrow select', async () => {
+      const ctx = createMockContext('user-123');
+      (ctx.loaders.liftFieldsByRideId.load as jest.Mock).mockResolvedValue({
+        elevationGainMeters: 1200,
+        liftElevationGainMeters: 700,
+        countLiftElevation: false,
+      });
+      const result = await resolver({ id: 'ride-1', elevationGainMeters: 1200 }, {}, ctx as never);
+      expect(ctx.loaders.liftFieldsByRideId.load).toHaveBeenCalledWith('ride-1');
+      expect(result).toBe(500);
+    });
+  });
+
+  describe('Ride.lift', () => {
+    const resolver = resolvers.Ride.lift;
+
+    it('is null when no lift was detected', async () => {
+      const ctx = createMockContext('user-123');
+      const result = await resolver(
+        { id: 'ride-1', elevationGainMeters: 900, liftElevationGainMeters: 0, countLiftElevation: null },
+        {},
+        ctx as never
+      );
+      expect(result).toBeNull();
+      expect(ctx.loaders.liftSegmentsByRideId.load).toHaveBeenCalledWith('ride-1');
+    });
+
+    it('returns the segments, the climb and the default choice', async () => {
+      const ctx = createMockContext('user-123');
+      (ctx.loaders.liftSegmentsByRideId.load as jest.Mock).mockResolvedValue([liftSegment, liftSegment]);
+      const result = await resolver(
+        { id: 'ride-1', elevationGainMeters: 2000, liftElevationGainMeters: 800, countLiftElevation: null },
+        {},
+        ctx as never
+      );
+      expect(result).toEqual({
+        segments: [liftSegment, liftSegment],
+        elevationGainMeters: 800,
+        countElevation: false,
+        countElevationChoice: null,
+      });
+    });
+
+    it('serializes segment times as ISO strings', () => {
+      expect(resolvers.RideLiftSegment.startTime(liftSegment)).toBe('2026-08-01T10:00:00.000Z');
+      expect(resolvers.RideLiftSegment.endTime(liftSegment)).toBe('2026-08-01T10:08:00.000Z');
+    });
+  });
+
+  describe('setRideLiftElevation', () => {
+    const mutation = resolvers.Mutation.setRideLiftElevation;
+    const mockFindFirst = prisma.ride.findFirst as jest.Mock;
+    const mockUpdate = prisma.ride.update as jest.Mock;
+
+    it('requires a signed-in rider', async () => {
+      await expect(
+        mutation({}, { rideId: 'ride-1', count: true }, createMockContext(null) as never)
+      ).rejects.toThrow();
+      expect(mockFindFirst).not.toHaveBeenCalled();
+    });
+
+    it("saves the choice on the rider's own ride", async () => {
+      mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: 900 });
+      const updated = { id: 'ride-1', countLiftElevation: true };
+      mockUpdate.mockResolvedValue(updated);
+
+      const result = await mutation({}, { rideId: 'ride-1', count: true }, createMockContext('user-123') as never);
+
+      expect(mockFindFirst).toHaveBeenCalledWith({
+        where: { id: 'ride-1', userId: 'user-123' },
+        select: { id: true, liftDurationSeconds: true },
+      });
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ride-1' },
+        data: { countLiftElevation: true },
+      });
+      expect(result).toBe(updated);
+    });
+
+    it('saves false, and clears the choice back to the default on null', async () => {
+      mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: 900 });
+      mockUpdate.mockResolvedValue({ id: 'ride-1' });
+
+      await mutation({}, { rideId: 'ride-1', count: false }, createMockContext('user-123') as never);
+      expect(mockUpdate).toHaveBeenLastCalledWith({ where: { id: 'ride-1' }, data: { countLiftElevation: false } });
+
+      await mutation({}, { rideId: 'ride-1', count: null }, createMockContext('user-123') as never);
+      expect(mockUpdate).toHaveBeenLastCalledWith({ where: { id: 'ride-1' }, data: { countLiftElevation: null } });
+    });
+
+    it("refuses another rider's ride as not found, without writing", async () => {
+      // The owner-scoped findFirst finds nothing for a foreign ride.
+      mockFindFirst.mockResolvedValue(null);
+
+      await expect(
+        mutation({}, { rideId: 'someone-elses', count: true }, createMockContext('user-123') as never)
+      ).rejects.toMatchObject({ message: 'Ride not found', extensions: { code: 'NOT_FOUND' } });
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('refuses a ride with no detected lift', async () => {
+      mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: 0 });
+      await expect(
+        mutation({}, { rideId: 'ride-1', count: false }, createMockContext('user-123') as never)
+      ).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });
+
+      mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: null });
+      await expect(
+        mutation({}, { rideId: 'ride-1', count: false }, createMockContext('user-123') as never)
+      ).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('is rate limited', async () => {
+      mockCheckMutationRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 30, redisAvailable: true });
+
+      await expect(
+        mutation({}, { rideId: 'ride-1', count: true }, createMockContext('user-123') as never)
+      ).rejects.toMatchObject({ extensions: { code: 'RATE_LIMITED' } });
+      expect(mockCheckMutationRateLimit).toHaveBeenCalledWith('setRideLiftElevation', 'user-123');
+      expect(mockFindFirst).not.toHaveBeenCalled();
     });
   });
 });
