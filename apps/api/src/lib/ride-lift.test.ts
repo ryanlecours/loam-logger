@@ -14,6 +14,7 @@ import {
   buildRideLift,
   countedElevationGainMeters,
   countsLiftElevation,
+  hasDetectedLift,
   liftKindFromAerialway,
 } from './ride-lift';
 
@@ -39,8 +40,19 @@ describe('ride-lift', () => {
     });
   });
 
+  describe('hasDetectedLift', () => {
+    it('is true when the detector stored lift time', () => {
+      expect(hasDetectedLift({ liftDurationSeconds: 1800 })).toBe(true);
+    });
+
+    it('is false for an analyzed ride with no lift and for a ride never analyzed', () => {
+      expect(hasDetectedLift({ liftDurationSeconds: 0 })).toBe(false);
+      expect(hasDetectedLift({ liftDurationSeconds: null })).toBe(false);
+    });
+  });
+
   describe('countedElevationGainMeters', () => {
-    const base = { elevationGainMeters: 2000, liftElevationGainMeters: 1500 };
+    const base = { elevationGainMeters: 2000, liftDurationSeconds: 1800, liftElevationGainMeters: 1500 };
 
     it('removes the lift climb by default', () => {
       expect(countedElevationGainMeters({ ...base, countLiftElevation: null })).toBe(500);
@@ -56,16 +68,22 @@ describe('ride-lift', () => {
 
     it('keeps the recorded climb on a ride with no lift or never analyzed', () => {
       expect(
-        countedElevationGainMeters({ elevationGainMeters: 800, liftElevationGainMeters: 0, countLiftElevation: null })
+        countedElevationGainMeters({ elevationGainMeters: 800, liftDurationSeconds: 0, liftElevationGainMeters: 0, countLiftElevation: null })
       ).toBe(800);
       expect(
-        countedElevationGainMeters({ elevationGainMeters: 800, liftElevationGainMeters: null, countLiftElevation: null })
+        countedElevationGainMeters({ elevationGainMeters: 800, liftDurationSeconds: null, liftElevationGainMeters: null, countLiftElevation: null })
+      ).toBe(800);
+    });
+
+    it('keeps the recorded climb for a lift that climbed nothing, whatever the choice', () => {
+      expect(
+        countedElevationGainMeters({ elevationGainMeters: 800, liftDurationSeconds: 600, liftElevationGainMeters: 0, countLiftElevation: false })
       ).toBe(800);
     });
 
     it('floors at zero when the recorded climb was edited below the lift share', () => {
       expect(
-        countedElevationGainMeters({ elevationGainMeters: 300, liftElevationGainMeters: 1500, countLiftElevation: null })
+        countedElevationGainMeters({ elevationGainMeters: 300, liftDurationSeconds: 1800, liftElevationGainMeters: 1500, countLiftElevation: null })
       ).toBe(0);
     });
   });
@@ -101,13 +119,13 @@ describe('ride-lift', () => {
 
     it('is null when no segment was detected', () => {
       expect(
-        buildRideLift({ elevationGainMeters: 900, liftElevationGainMeters: 0, countLiftElevation: null }, [])
+        buildRideLift({ elevationGainMeters: 900, liftDurationSeconds: 0, liftElevationGainMeters: 0, countLiftElevation: null }, [])
       ).toBeNull();
     });
 
     it('reports the stored climb and the effective and saved choice', () => {
       expect(
-        buildRideLift({ elevationGainMeters: 900, liftElevationGainMeters: 800, countLiftElevation: null }, [
+        buildRideLift({ elevationGainMeters: 900, liftDurationSeconds: 960, liftElevationGainMeters: 800, countLiftElevation: null }, [
           segment,
           segment,
         ])
@@ -121,7 +139,7 @@ describe('ride-lift', () => {
 
     it('sums the segments when the ride column is missing', () => {
       const lift = buildRideLift(
-        { elevationGainMeters: 900, liftElevationGainMeters: null, countLiftElevation: true },
+        { elevationGainMeters: 900, liftDurationSeconds: 960, liftElevationGainMeters: null, countLiftElevation: true },
         [segment, segment]
       );
       expect(lift?.elevationGainMeters).toBe(800);
@@ -133,12 +151,12 @@ describe('ride-lift', () => {
   describe('batchLiftFieldsByRideId', () => {
     it('returns rows in key order with null for missing rides', async () => {
       mockPrisma.ride.findMany.mockResolvedValue([
-        { id: 'b', elevationGainMeters: 10, liftElevationGainMeters: 5, countLiftElevation: true },
+        { id: 'b', elevationGainMeters: 10, liftDurationSeconds: 600, liftElevationGainMeters: 5, countLiftElevation: true },
       ]);
       const rows = await batchLiftFieldsByRideId(['a', 'b']);
       expect(rows).toEqual([
         null,
-        { id: 'b', elevationGainMeters: 10, liftElevationGainMeters: 5, countLiftElevation: true },
+        { id: 'b', elevationGainMeters: 10, liftDurationSeconds: 600, liftElevationGainMeters: 5, countLiftElevation: true },
       ]);
     });
   });

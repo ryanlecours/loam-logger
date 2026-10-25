@@ -8251,7 +8251,7 @@ describe('Ride lift detection', () => {
     it('removes the lift climb from a full row by default, without a lookup', async () => {
       const ctx = createMockContext('user-123');
       const result = await resolver(
-        { id: 'ride-1', elevationGainMeters: 2000, liftElevationGainMeters: 1500, countLiftElevation: null },
+        { id: 'ride-1', elevationGainMeters: 2000, liftDurationSeconds: 1800, liftElevationGainMeters: 1500, countLiftElevation: null },
         {},
         ctx as never
       );
@@ -8262,7 +8262,7 @@ describe('Ride lift detection', () => {
     it('keeps the lift climb when the rider counts it', async () => {
       const ctx = createMockContext('user-123');
       const result = await resolver(
-        { id: 'ride-1', elevationGainMeters: 2000, liftElevationGainMeters: 1500, countLiftElevation: true },
+        { id: 'ride-1', elevationGainMeters: 2000, liftDurationSeconds: 1800, liftElevationGainMeters: 1500, countLiftElevation: true },
         {},
         ctx as never
       );
@@ -8273,6 +8273,7 @@ describe('Ride lift detection', () => {
       const ctx = createMockContext('user-123');
       (ctx.loaders.liftFieldsByRideId.load as jest.Mock).mockResolvedValue({
         elevationGainMeters: 1200,
+        liftDurationSeconds: 900,
         liftElevationGainMeters: 700,
         countLiftElevation: false,
       });
@@ -8280,27 +8281,59 @@ describe('Ride lift detection', () => {
       expect(ctx.loaders.liftFieldsByRideId.load).toHaveBeenCalledWith('ride-1');
       expect(result).toBe(500);
     });
+
+    it('falls back to the recorded climb when the batched lookup finds no ride', async () => {
+      const ctx = createMockContext('user-123');
+      (ctx.loaders.liftFieldsByRideId.load as jest.Mock).mockResolvedValue(null);
+      expect(await resolver({ id: 'ride-1', elevationGainMeters: 1200 }, {}, ctx as never)).toBe(1200);
+      // A parent with no climb column at all still resolves to a number.
+      expect(await resolver({ id: 'ride-1' }, {}, ctx as never)).toBe(0);
+    });
   });
 
   describe('Ride.lift', () => {
     const resolver = resolvers.Ride.lift;
 
-    it('is null when no lift was detected', async () => {
+    it('is null without a segment query when the ride has no lift', async () => {
       const ctx = createMockContext('user-123');
-      const result = await resolver(
-        { id: 'ride-1', elevationGainMeters: 900, liftElevationGainMeters: 0, countLiftElevation: null },
+      const noLift = await resolver(
+        { id: 'ride-1', elevationGainMeters: 900, liftDurationSeconds: 0, liftElevationGainMeters: 0, countLiftElevation: null },
         {},
         ctx as never
       );
-      expect(result).toBeNull();
-      expect(ctx.loaders.liftSegmentsByRideId.load).toHaveBeenCalledWith('ride-1');
+      const neverAnalyzed = await resolver(
+        { id: 'ride-2', elevationGainMeters: 900, liftDurationSeconds: null, liftElevationGainMeters: null, countLiftElevation: null },
+        {},
+        ctx as never
+      );
+      expect(noLift).toBeNull();
+      expect(neverAnalyzed).toBeNull();
+      expect(ctx.loaders.liftSegmentsByRideId.load).not.toHaveBeenCalled();
+    });
+
+    it('is null when the batched lookup finds no ride', async () => {
+      const ctx = createMockContext('user-123');
+      (ctx.loaders.liftFieldsByRideId.load as jest.Mock).mockResolvedValue(null);
+      expect(await resolver({ id: 'ride-1', elevationGainMeters: 900 }, {}, ctx as never)).toBeNull();
+      expect(ctx.loaders.liftSegmentsByRideId.load).not.toHaveBeenCalled();
+    });
+
+    it('still shows a lift that climbed nothing, so the rider can see it was detected', async () => {
+      const ctx = createMockContext('user-123');
+      (ctx.loaders.liftSegmentsByRideId.load as jest.Mock).mockResolvedValue([liftSegment]);
+      const result = await resolver(
+        { id: 'ride-1', elevationGainMeters: 900, liftDurationSeconds: 480, liftElevationGainMeters: 0, countLiftElevation: null },
+        {},
+        ctx as never
+      );
+      expect(result).toMatchObject({ segments: [liftSegment], elevationGainMeters: 0 });
     });
 
     it('returns the segments, the climb and the default choice', async () => {
       const ctx = createMockContext('user-123');
       (ctx.loaders.liftSegmentsByRideId.load as jest.Mock).mockResolvedValue([liftSegment, liftSegment]);
       const result = await resolver(
-        { id: 'ride-1', elevationGainMeters: 2000, liftElevationGainMeters: 800, countLiftElevation: null },
+        { id: 'ride-1', elevationGainMeters: 2000, liftDurationSeconds: 960, liftElevationGainMeters: 800, countLiftElevation: null },
         {},
         ctx as never
       );
