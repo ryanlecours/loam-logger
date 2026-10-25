@@ -53,11 +53,12 @@ type TransactionClient = Omit<
 // Metrics are the RAW ride columns. The lift-corrected deltas
 // (liftDurationSeconds et al) are written by workers/lift.worker.ts and read
 // only by routes/admin.lift.ts and, for the ride's own displayed climb, by
-// lib/ride-lift.ts (the rider's per-ride lift choice) — the wear model (prediction/wear.ts:36-41),
-// the engine (prediction/engine.ts:548-550), bikeHistory totals
-// (resolvers.ts:1858) and component-hours.ts:208 are all raw. Subtracting here
-// alone would make a component's lifetime hours smaller than the same rides'
-// bikeHistory total with no explanation available to the rider.
+// lib/ride-lift.ts (the rider's per-ride lift choice). The wear model
+// (prediction/wear.ts:36-41), the engine (prediction/engine.ts:548-550),
+// bikeHistory totals (resolvers.ts:1858) and component-hours.ts:208 are all
+// raw. Subtracting here alone would make a component's lifetime hours smaller
+// than the same rides' bikeHistory total with no explanation available to the
+// rider.
 
 /** Hard ceiling on tenure rows, in the spirit of bikeHistory's INSTALL_CAP. */
 export const TENURE_CAP = 200;
