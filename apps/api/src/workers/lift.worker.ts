@@ -237,7 +237,7 @@ export async function processLiftJob(
         liftElevationGainMeters: detected.reduce((a, s) => a + s.elevationGainMeters, 0),
         liftDistanceMeters: detected.reduce((a, s) => a + s.distanceMeters, 0),
         liftDetectorVersion: DETECTOR_VERSION,
-        trackElevationGainMeters: trackClimbMeters(points),
+        trackElevationGainMeters: trackClimbMeters(points, detected),
         ...(derivedElevationLoss != null ? { elevationLossMeters: derivedElevationLoss } : {}),
       },
     });

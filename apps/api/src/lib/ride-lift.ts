@@ -1,5 +1,5 @@
 import { prisma } from './prisma';
-import { computeAdjustedMetrics, type pointsFromStream } from './lift-detection';
+import type { pointsFromStream } from './lift-detection';
 
 // The rider-facing side of lift detection: which lifts a ride used, and the
 // rider's per-ride choice about whether the lift's climb counts in that
@@ -82,17 +82,81 @@ export function countsLiftElevation(choice: boolean | null | undefined): boolean
 }
 
 /**
- * Climb summed over the whole track (every positive altitude step, lifts
- * included), or null when the track cannot say. Written to
- * Ride.trackElevationGainMeters by the lift worker and the backfill script.
- * It is the denominator for the share of a ride's climb a lift did, so it is
- * measured on the raw track like the lift segments' rise, not on the device's
- * smoothed summary. Fewer than two points have no climb to sum, and a
- * malformed altitude series must not store NaN.
+ * How far altitude must move from its last turning point before the move
+ * counts toward the track climb. Summing every raw up-step turns altitude
+ * jitter into climb: a phone recording at Whistler (GPS altitude, no
+ * barometer) summed to about 16,600 ft for a day whose lifts rose 7,468 ft,
+ * which made most of the day look like riding. Devices filter the same way
+ * before reporting a climb. Chosen on production tracks (see
+ * scripts/backfill-track-climb.ts --threshold).
  */
-export function trackClimbMeters(points: ReturnType<typeof pointsFromStream>): number | null {
+export const TRACK_CLIMB_HYSTERESIS_METERS = 5;
+
+/**
+ * Climb with hysteresis: a rise counts once altitude has gone thresholdMeters
+ * above the last low point, and a drop of thresholdMeters resets the low
+ * point. Noise smaller than the threshold adds nothing; a steady climb keeps
+ * all but the last few meters. Non-finite altitudes are skipped.
+ */
+export function hysteresisClimbMeters(
+  elevations: ReadonlyArray<number>,
+  thresholdMeters: number = TRACK_CLIMB_HYSTERESIS_METERS
+): number {
+  let ref: number | null = null;
+  let gain = 0;
+  for (const ele of elevations) {
+    if (!Number.isFinite(ele)) continue;
+    if (ref == null) {
+      ref = ele;
+    } else if (ele - ref >= thresholdMeters) {
+      gain += ele - ref;
+      ref = ele;
+    } else if (ref - ele >= thresholdMeters) {
+      ref = ele;
+    }
+  }
+  return gain;
+}
+
+/**
+ * Climb over the whole track, lifts included, or null when the track cannot
+ * say. Written to Ride.trackElevationGainMeters by the lift worker and the
+ * backfill script, and used as the denominator for the share of a ride's
+ * climb a lift did.
+ *
+ * Inside a lift segment the climb is the segment's net rise (last altitude
+ * minus first), the same figure the segment stores. Between segments it is
+ * the hysteresis-smoothed climb. Smoothing alone is not enough on a phone:
+ * at Whistler the GPS altitude "climbed" 3,580 m during lift rides that rose
+ * 2,276 m, which inflated the denominator and counted lift noise as riding.
+ * Fewer than two points have no climb to sum.
+ */
+export function trackClimbMeters(
+  points: ReturnType<typeof pointsFromStream>,
+  liftSegments: ReadonlyArray<{ startIndex: number; endIndex: number }> = [],
+  thresholdMeters: number = TRACK_CLIMB_HYSTERESIS_METERS
+): number | null {
   if (!points || points.length < 2) return null;
-  const gain = computeAdjustedMetrics(points, []).elevationGainMeters;
+  const spans = [...liftSegments]
+    .filter((s) => s.startIndex >= 0 && s.endIndex < points.length && s.startIndex <= s.endIndex)
+    .sort((a, b) => a.startIndex - b.startIndex);
+  let gain = 0;
+  const climb = (lo: number, hi: number) =>
+    hysteresisClimbMeters(points.slice(lo, hi + 1).map((p) => p.ele), thresholdMeters);
+  // `last` is the index the previous span ended on; riding resumes there, so
+  // the steps into and out of a lift are counted as riding.
+  let last = 0;
+  for (const span of spans) {
+    // Overlapping spans should not occur; start at the previous end rather
+    // than count the overlap twice.
+    if (span.endIndex <= last && last > 0) continue;
+    const start = Math.max(span.startIndex, last);
+    gain += climb(last, start);
+    const rise = points[span.endIndex].ele - points[start].ele;
+    if (Number.isFinite(rise) && rise > 0) gain += rise;
+    last = span.endIndex;
+  }
+  gain += climb(last, points.length - 1);
   return Number.isFinite(gain) ? gain : null;
 }
 

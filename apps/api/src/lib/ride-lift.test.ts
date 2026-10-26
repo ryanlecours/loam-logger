@@ -17,6 +17,8 @@ import {
   countedElevationGainMeters,
   countsLiftElevation,
   hasDetectedLift,
+  hysteresisClimbMeters,
+  TRACK_CLIMB_HYSTERESIS_METERS,
   liftKindFromAerialway,
   liftRiseMeters,
   trackClimbMeters,
@@ -75,20 +77,74 @@ describe('ride-lift', () => {
     });
   });
 
+  describe('hysteresisClimbMeters', () => {
+    it('counts a steady climb and ignores jitter smaller than the threshold', () => {
+      // Real climbs of 50 and 80 m, with +-2 m noise riding on top.
+      const noisy = [100, 102, 100, 102, 150, 148, 150, 120, 122, 120, 200, 198, 200];
+      expect(hysteresisClimbMeters(noisy, 5)).toBe(130);
+      // Summing every up-step counts each wiggle as climb.
+      expect(hysteresisClimbMeters(noisy, 0)).toBe(138);
+    });
+
+    it('turns pure noise into no climb at all', () => {
+      expect(hysteresisClimbMeters([500, 503, 499, 502, 500, 504, 501], 5)).toBe(0);
+    });
+
+    it('counts a rise made of small steps once it passes the threshold', () => {
+      expect(hysteresisClimbMeters([0, 1, 2, 3, 4, 5, 6, 7], 5)).toBe(5);
+    });
+
+    it('skips non-finite altitudes', () => {
+      expect(hysteresisClimbMeters([100, Number.NaN, Number.POSITIVE_INFINITY, 140], 5)).toBe(40);
+    });
+
+    it('defaults to the calibrated threshold', () => {
+      expect(TRACK_CLIMB_HYSTERESIS_METERS).toBeGreaterThan(0);
+      const steps = [0, TRACK_CLIMB_HYSTERESIS_METERS - 1, 0];
+      expect(hysteresisClimbMeters(steps)).toBe(0);
+    });
+  });
+
   describe('trackClimbMeters', () => {
     const pt = (t: number, ele: number) => ({ t, ele, lat: 50.1, lng: -122.9 });
 
-    it('sums every positive step over the whole track', () => {
+    it('sums the smoothed climb over the whole track', () => {
       expect(trackClimbMeters([pt(0, 100), pt(10, 150), pt(20, 120), pt(30, 200)])).toBe(130);
+      expect(trackClimbMeters([pt(0, 100), pt(10, 103), pt(20, 100)])).toBe(0);
+    });
+
+    it('takes a threshold for calibration', () => {
+      expect(trackClimbMeters([pt(0, 100), pt(10, 103), pt(20, 100)], [], 0)).toBe(3);
+    });
+
+    it("counts a lift span as its net rise, so altitude noise on the lift adds nothing", () => {
+      // Riding 100 -> 150 (50), lift 150 -> 400 with 60 m swings, riding 400 -> 420 (20).
+      const points = [100, 150, 210, 170, 260, 200, 330, 290, 400, 420].map((e, i) => pt(i * 10, e));
+      const lift = [{ startIndex: 1, endIndex: 8 }];
+      expect(trackClimbMeters(points, lift)).toBe(50 + 250 + 20);
+      // Unsplit, the swings on the lift count as climb.
+      expect(trackClimbMeters(points)).toBeGreaterThan(400);
+    });
+
+    it('adds nothing for a span that ends lower than it starts', () => {
+      const points = [100, 150, 140, 120, 160].map((e, i) => pt(i * 10, e));
+      expect(trackClimbMeters(points, [{ startIndex: 1, endIndex: 3 }])).toBe(50 + 40);
+    });
+
+    it('handles unsorted, out-of-range and overlapping spans', () => {
+      const points = [0, 100, 200, 300, 400, 500].map((e, i) => pt(i * 10, e));
+      const spans = [
+        { startIndex: 3, endIndex: 5 },
+        { startIndex: 0, endIndex: 3 },
+        { startIndex: 2, endIndex: 4 },
+        { startIndex: 4, endIndex: 99 },
+      ];
+      expect(trackClimbMeters(points, spans)).toBe(500);
     });
 
     it('is null for a track too short to climb', () => {
       expect(trackClimbMeters(null)).toBeNull();
       expect(trackClimbMeters([pt(0, 100)])).toBeNull();
-    });
-
-    it('is null rather than a non-finite climb for a malformed altitude series', () => {
-      expect(trackClimbMeters([pt(0, 100), pt(10, Number.POSITIVE_INFINITY), pt(20, 140)])).toBeNull();
     });
   });
 
