@@ -1280,12 +1280,14 @@ export type Ride = {
   averageHr?: Maybe<Scalars['Int']['output']>;
   bikeId?: Maybe<Scalars['ID']['output']>;
   /**
-   * Elevation gain after the rider's lift choice: elevationGainMeters minus the
-   * climb a detected chairlift or gondola did, unless the rider chose to count
-   * it (see lift). Equals elevationGainMeters when no lift was detected. Show
-   * this as the ride's climb; elevationGainMeters stays the editable recorded
-   * value. Wherever a lift-adjusted figure appears, credit
-   * "© OpenStreetMap contributors" (https://www.openstreetmap.org/copyright).
+   * Elevation gain after the rider's lift choice. When a mapped lift (see lift)
+   * climbed for the rider and the climb is not counted, the lift's share of the
+   * track's climb is taken out of elevationGainMeters proportionally, so it
+   * reaches 0 only if every foot was on a lift. Equals elevationGainMeters when
+   * no mapped lift was found or the rider counts it. Show this as the ride's
+   * climb; elevationGainMeters stays the editable recorded value. Wherever a
+   * lift-adjusted figure appears, credit "© OpenStreetMap contributors"
+   * (https://www.openstreetmap.org/copyright).
    */
   countedElevationGainMeters: Scalars['Float']['output'];
   createdAt: Scalars['String']['output'];
@@ -1313,7 +1315,9 @@ export type Ride = {
   id: Scalars['ID']['output'];
   /**
    * Lifts detected on this ride, and the rider's choice about their climb.
-   * Null when no lift was detected (including rides never analyzed).
+   * Only segments matched to a mapped lift (an OpenStreetMap aerialway) are
+   * included; motion-only detections are left out. Null when there are none
+   * (including rides never analyzed).
    */
   lift?: Maybe<RideLift>;
   location?: Maybe<Scalars['String']['output']>;
