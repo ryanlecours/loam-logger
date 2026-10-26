@@ -67,6 +67,8 @@ const mockGetLiftLines = getLiftLines as jest.Mock;
 
 /** What the stream says the ride descended; see "fills descent" below. */
 const STREAM_DESCENT = 842.5;
+/** What the whole track climbed, lifts included (Ride.trackElevationGainMeters). */
+const STREAM_CLIMB = 1210.4;
 
 const makeJob = (rideId = 'ride-1', data: { requireGeometry?: boolean; force?: boolean } = {}) =>
   ({ data: { rideId, ...data }, id: 'job-1' }) as never;
@@ -113,7 +115,7 @@ describe('processLiftJob', () => {
     mockGetLiftLines.mockResolvedValue({ geometryAvailable: true, liftLines: [] });
     mockPointsFromStream.mockReturnValue(POINTS);
     mockDetect.mockReturnValue([]);
-    mockAdjusted.mockReturnValue({ elevationLossMeters: STREAM_DESCENT });
+    mockAdjusted.mockReturnValue({ elevationLossMeters: STREAM_DESCENT, elevationGainMeters: STREAM_CLIMB });
   });
 
   it('skips when the ride does not exist', async () => {
@@ -281,6 +283,8 @@ describe('processLiftJob', () => {
     expect(mockAdjusted).not.toHaveBeenCalled();
     const data = mockTx.ride.update.mock.calls[0][0].data;
     expect(data).not.toHaveProperty('elevationLossMeters');
+    // Same for the track climb: null ("unknown"), never 0.
+    expect(data.trackElevationGainMeters).toBeNull();
   });
 
   it('does not store a non-finite stream sum', async () => {
@@ -305,9 +309,12 @@ describe('processLiftJob', () => {
 
     await processLiftJob(makeJob());
 
-    expect(mockAdjusted).not.toHaveBeenCalled();
+    // Only the whole-track climb is summed; no lift-aware descent sum runs.
+    expect(mockAdjusted).toHaveBeenCalledTimes(1);
+    expect(mockAdjusted).toHaveBeenCalledWith(POINTS, []);
     const data = mockTx.ride.update.mock.calls[0][0].data;
     expect(data).not.toHaveProperty('elevationLossMeters');
+    expect(data.trackElevationGainMeters).toBe(STREAM_CLIMB);
   });
 
   it('re-detects from the persisted stream without calling Strava when the version is stale', async () => {
@@ -416,12 +423,15 @@ describe('processLiftJob', () => {
         liftElevationGainMeters: 155.5,
         liftDistanceMeters: 1600,
         liftDetectorVersion: 1,
+        trackElevationGainMeters: STREAM_CLIMB,
         elevationLossMeters: STREAM_DESCENT,
       },
     });
     // Descent is summed over the whole track with the lift segments known,
-    // so the pure function gets both.
+    // so the pure function gets both. The track climb is summed with no
+    // segments: it is the whole track's climb, lifts included.
     expect(mockAdjusted).toHaveBeenCalledWith(POINTS, [SEGMENT]);
+    expect(mockAdjusted).toHaveBeenCalledWith(POINTS, []);
   });
 
   it('records "analyzed, no lift" as zero deltas at the current version', async () => {
@@ -442,6 +452,7 @@ describe('processLiftJob', () => {
         liftElevationGainMeters: 0,
         liftDistanceMeters: 0,
         liftDetectorVersion: 1,
+        trackElevationGainMeters: STREAM_CLIMB,
         elevationLossMeters: STREAM_DESCENT,
       },
     });

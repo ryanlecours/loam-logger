@@ -1,8 +1,17 @@
 import { prisma } from './prisma';
+import { computeAdjustedMetrics, type pointsFromStream } from './lift-detection';
 
 // The rider-facing side of lift detection: which lifts a ride used, and the
 // rider's per-ride choice about whether the lift's climb counts in that
 // ride's elevation gain.
+//
+// Only segments matched to a mapped lift (an OpenStreetMap aerialway, so
+// liftOsmId is set) count here. The detector also keeps segments it found
+// from motion alone, and on real rides those turned out to be mostly steady
+// pedal climbs (2026-10-26: 28 of one rider's 30 flagged rides had no mapped
+// lift, at places with no chairlift). They stay in RideSegment and the Ride
+// lift columns for the admin tools, but the rider never sees them and they
+// never remove climb.
 //
 // Scope is elevation only. Lift time and distance stay in the ride's numbers,
 // and nothing server-side reads the choice: component hours, the wear model
@@ -25,6 +34,8 @@ export interface LiftElevationFields {
   elevationGainMeters: number;
   liftDurationSeconds: number | null;
   liftElevationGainMeters: number | null;
+  /** Climb summed over the whole stored track; null until the worker or the backfill writes it. */
+  trackElevationGainMeters: number | null;
   countLiftElevation: boolean | null;
 }
 
@@ -35,7 +46,7 @@ export interface RideLiftSegmentResult {
   elevationGainMeters: number;
   distanceMeters: number;
   liftName: string | null;
-  /** Null when the segment was not matched to a mapped lift. */
+  /** Null when the lift is not in the active geometry snapshot. */
   kind: RideLiftKind | null;
 }
 
@@ -47,16 +58,14 @@ export interface RideLiftResult {
 }
 
 /**
- * Whether the detector stored lift segments for this ride, read from the Ride
- * columns so no segment query is needed. The lift worker writes the segments
- * and the lift columns in one transaction, and liftDurationSeconds is the sum
- * of the segments' durations: it is above zero exactly when segments exist
- * (a lift ride lasts minutes, so a real segment never rounds to 0 s). NULL
- * means never analyzed, which also has no segments.
+ * Whether the detector stored any lift segments for this ride, read from the
+ * Ride columns so no segment query is needed. The lift worker writes the
+ * segments and the lift columns in one transaction, and liftDurationSeconds is
+ * the sum of the segments' durations: it is above zero exactly when segments
+ * exist. NULL means never analyzed, which also has no segments.
  *
- * This is the one "has a lift" test. The climb is a separate question: a
- * downhill or flat lift has segments and a lift climb of 0, so the rider can
- * still see it and save a choice, which then changes no number.
+ * A cheap pre-check only: those segments may all be motion-only, so callers
+ * that get true still load the mapped segments and decide from those.
  */
 export function hasDetectedLift(ride: Pick<LiftElevationFields, 'liftDurationSeconds'>): boolean {
   return ride.liftDurationSeconds != null && ride.liftDurationSeconds > 0;
@@ -68,19 +77,52 @@ export function countsLiftElevation(choice: boolean | null | undefined): boolean
 }
 
 /**
- * The ride's elevation gain after the rider's lift choice. Equals the stored
- * elevationGainMeters unless a lift climbed for the rider and that climb is
- * not counted. Floored at zero: a rider who lowered the ride's climb by hand
- * below the lift's share should see 0, never a negative climb. Keys off the
- * lift climb rather than hasDetectedLift: with no climb to remove, the
- * recorded figure stands whatever the choice says.
+ * Climb summed over the whole track (every positive altitude step, lifts
+ * included), or null when the track cannot say. Written to
+ * Ride.trackElevationGainMeters by the lift worker and the backfill script.
+ * It is the denominator for the share of a ride's climb a lift did, so it is
+ * measured on the raw track like the lift segments' rise, not on the device's
+ * smoothed summary. Fewer than two points have no climb to sum, and a
+ * malformed altitude series must not store NaN.
  */
-export function countedElevationGainMeters(ride: LiftElevationFields): number {
-  const lift = ride.liftElevationGainMeters;
-  if (lift == null || !(lift > 0) || countsLiftElevation(ride.countLiftElevation)) {
-    return ride.elevationGainMeters;
+export function trackClimbMeters(points: ReturnType<typeof pointsFromStream>): number | null {
+  if (!points || points.length < 2) return null;
+  const gain = computeAdjustedMetrics(points, []).elevationGainMeters;
+  return Number.isFinite(gain) ? gain : null;
+}
+
+/** Climb the mapped lifts did: each segment's rise, summed. */
+export function liftRiseMeters(segments: ReadonlyArray<{ elevationGainMeters: number }>): number {
+  return segments.reduce((sum, s) => sum + Math.max(0, s.elevationGainMeters), 0);
+}
+
+/**
+ * The ride's elevation gain after the rider's lift choice. Equals the stored
+ * elevationGainMeters unless a mapped lift climbed for the rider and that
+ * climb is not counted.
+ *
+ * Proportional, not a subtraction. The recorded climb comes from the device
+ * or provider summary, which smooths altitude its own way, while the lift's
+ * rise is measured on the raw track. The two scales differ, and subtracting
+ * one from the other wiped out whole rides: a Whistler day with 7,468 ft of
+ * lift rise against 6,711 ft recorded counted 0. Instead the lift's share of
+ * the track's own climb is taken out of the recorded figure:
+ *
+ *   counted = recorded * (track climb - lift rise) / track climb
+ *
+ * so the result stays on the recorded figure's scale and only reaches 0 when
+ * every foot of the track's climb was on a lift. Until the track climb is
+ * known (rides analyzed before the column existed and not yet backfilled),
+ * it falls back to the subtraction, floored at zero.
+ */
+export function countedElevationGainMeters(ride: LiftElevationFields, liftRise: number): number {
+  const recorded = ride.elevationGainMeters;
+  if (!(liftRise > 0) || countsLiftElevation(ride.countLiftElevation)) return recorded;
+  const track = ride.trackElevationGainMeters;
+  if (track != null && track > 0) {
+    return (recorded * Math.max(0, track - liftRise)) / track;
   }
-  return Math.max(0, ride.elevationGainMeters - lift);
+  return Math.max(0, recorded - liftRise);
 }
 
 /**
@@ -115,6 +157,7 @@ export async function batchLiftFieldsByRideId(
       elevationGainMeters: true,
       liftDurationSeconds: true,
       liftElevationGainMeters: true,
+      trackElevationGainMeters: true,
       countLiftElevation: true,
     },
   });
@@ -122,17 +165,20 @@ export async function batchLiftFieldsByRideId(
   return rideIds.map((id) => byId.get(id) ?? null);
 }
 
+/** The segments that count as a lift: matched to a mapped one. */
+export const MAPPED_LIFT_SEGMENT_WHERE = { kind: 'LIFT', liftOsmId: { not: null } } as const;
+
 /**
- * Batch loader: each ride's LIFT segments in ride order, with the lift's kind
- * looked up in the active geometry snapshot by OSM id. A segment whose lift is
- * not in the active snapshot (matched against an older one, or not matched at
- * all) gets a null kind, and the UI falls back to the generic word "lift".
+ * Batch loader: each ride's mapped lift segments in ride order, with the
+ * lift's kind looked up in the active geometry snapshot by OSM id. A lift
+ * matched against an older snapshot and missing from the active one keeps its
+ * name but gets a null kind, and the UI falls back to the generic word "lift".
  */
 export async function batchLiftSegmentsByRideId(
   rideIds: readonly string[]
 ): Promise<RideLiftSegmentResult[][]> {
   const segments = await prisma.rideSegment.findMany({
-    where: { rideId: { in: [...rideIds] }, kind: 'LIFT' },
+    where: { rideId: { in: [...rideIds] }, ...MAPPED_LIFT_SEGMENT_WHERE },
     orderBy: [{ rideId: 'asc' }, { startTime: 'asc' }],
     select: {
       rideId: true,
@@ -174,9 +220,9 @@ export async function batchLiftSegmentsByRideId(
 }
 
 /**
- * The Ride.lift payload, or null when no lift was detected on the ride. The
- * climb comes from the Ride column the detector wrote alongside the segments,
- * so it always matches what countedElevationGainMeters subtracts.
+ * The Ride.lift payload, or null when no mapped lift was found on the ride.
+ * The climb is summed over the mapped segments only, so it is exactly what
+ * countedElevationGainMeters takes out.
  */
 export function buildRideLift(
   fields: LiftElevationFields,
@@ -185,8 +231,7 @@ export function buildRideLift(
   if (segments.length === 0) return null;
   return {
     segments,
-    elevationGainMeters:
-      fields.liftElevationGainMeters ?? segments.reduce((sum, s) => sum + s.elevationGainMeters, 0),
+    elevationGainMeters: liftRiseMeters(segments),
     countElevation: countsLiftElevation(fields.countLiftElevation),
     countElevationChoice: fields.countLiftElevation,
   };

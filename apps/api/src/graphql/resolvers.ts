@@ -16,7 +16,14 @@ import { enqueueSyncJob, enqueueWeatherJob, enqueueLiftDetectionJob, enqueueGarm
 import { normalizeRecordedTrack, type RecordedTrackInput } from '../lib/recorded-track';
 import { saveRideStream } from '../lib/ride-stream-store';
 import { getRideTrack } from '../lib/ride-track';
-import { buildRideLift, countedElevationGainMeters, hasDetectedLift, type LiftElevationFields } from '../lib/ride-lift';
+import {
+  buildRideLift,
+  countedElevationGainMeters,
+  hasDetectedLift,
+  liftRiseMeters,
+  MAPPED_LIFT_SEGMENT_WHERE,
+  type LiftElevationFields,
+} from '../lib/ride-lift';
 import { invalidateBikePrediction, getCachedAdvisorSummary, setCachedAdvisorSummary } from '../services/prediction/cache';
 import { generateSummary, DEFAULT_ADVISOR_MODEL } from '../services/advisor/summarize';
 import type { BikePredictionSummary } from '../services/prediction/types';
@@ -525,12 +532,14 @@ async function liftFieldsFor(
     ride.elevationGainMeters !== undefined &&
     ride.liftDurationSeconds !== undefined &&
     ride.liftElevationGainMeters !== undefined &&
+    ride.trackElevationGainMeters !== undefined &&
     ride.countLiftElevation !== undefined
   ) {
     return {
       elevationGainMeters: ride.elevationGainMeters,
       liftDurationSeconds: ride.liftDurationSeconds,
       liftElevationGainMeters: ride.liftElevationGainMeters,
+      trackElevationGainMeters: ride.trackElevationGainMeters,
       countLiftElevation: ride.countLiftElevation,
     };
   }
@@ -4707,9 +4716,13 @@ export const resolvers = {
       if (!ride) {
         throw new GraphQLError('Ride not found', { extensions: { code: 'NOT_FOUND' } });
       }
-      // A choice only means something on a ride with a detected lift; see
-      // hasDetectedLift for why the column stands in for the segments.
-      if (!hasDetectedLift(ride)) {
+      // A choice only means something on a ride with a mapped lift, the only
+      // kind the rider is shown (see lib/ride-lift.ts). The column check is
+      // free and rules out most rides before the segment count.
+      const hasMappedLift =
+        hasDetectedLift(ride) &&
+        (await prisma.rideSegment.count({ where: { rideId: ride.id, ...MAPPED_LIFT_SEGMENT_WHERE } })) > 0;
+      if (!hasMappedLift) {
         throw new GraphQLError('No lift was detected on this ride', {
           extensions: { code: 'BAD_USER_INPUT' },
         });
@@ -7362,15 +7375,20 @@ export const resolvers = {
       return ctx.loaders.weatherByRideId.load(ride.id);
     },
     // Cheap on list queries: the full ride row already carries the lift
-    // columns. Resolvers that read rides with a narrow select fall back to
-    // one batched lookup per request.
+    // columns, and most rides have none, so they answer without a query.
+    // Rides with detected segments share one batched segment query per
+    // request with Ride.lift. Resolvers that read rides with a narrow select
+    // fall back to one batched lookup for the columns.
     countedElevationGainMeters: async (
       ride: { id: string } & Partial<LiftElevationFields>,
       _args: unknown,
       ctx: GraphQLContext
     ) => {
       const fields = await liftFieldsFor(ride, ctx);
-      return fields ? countedElevationGainMeters(fields) : ride.elevationGainMeters ?? 0;
+      if (!fields) return ride.elevationGainMeters ?? 0;
+      if (!hasDetectedLift(fields)) return fields.elevationGainMeters;
+      const segments = await ctx.loaders.liftSegmentsByRideId.load(ride.id);
+      return countedElevationGainMeters(fields, liftRiseMeters(segments));
     },
     lift: async (
       ride: { id: string } & Partial<LiftElevationFields>,

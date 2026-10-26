@@ -34,6 +34,9 @@ jest.mock('../../lib/prisma', () => ({
       count: jest.fn().mockResolvedValue(0),
       aggregate: jest.fn(),
     },
+    rideSegment: {
+      count: jest.fn().mockResolvedValue(0),
+    },
     rideWeather: {
       groupBy: jest.fn().mockResolvedValue([]),
       findMany: jest.fn().mockResolvedValue([]),
@@ -8245,41 +8248,58 @@ describe('Ride lift detection', () => {
     kind: 'CHAIRLIFT',
   };
 
+  // A full ride row as the rides list reads it.
+  const row = (overrides: Record<string, unknown> = {}) => ({
+    id: 'ride-1',
+    elevationGainMeters: 2000,
+    liftDurationSeconds: 1800,
+    liftElevationGainMeters: 1500,
+    trackElevationGainMeters: 2500,
+    countLiftElevation: null,
+    ...overrides,
+  });
+
   describe('Ride.countedElevationGainMeters', () => {
     const resolver = resolvers.Ride.countedElevationGainMeters;
 
-    it('removes the lift climb from a full row by default, without a lookup', async () => {
+    it('answers from the row, with no query at all, for a ride without lift segments', async () => {
       const ctx = createMockContext('user-123');
-      const result = await resolver(
-        { id: 'ride-1', elevationGainMeters: 2000, liftDurationSeconds: 1800, liftElevationGainMeters: 1500, countLiftElevation: null },
-        {},
-        ctx as never
-      );
-      expect(result).toBe(500);
+      expect(await resolver(row({ liftDurationSeconds: 0 }), {}, ctx as never)).toBe(2000);
+      expect(await resolver(row({ liftDurationSeconds: null }), {}, ctx as never)).toBe(2000);
       expect(ctx.loaders.liftFieldsByRideId.load).not.toHaveBeenCalled();
+      expect(ctx.loaders.liftSegmentsByRideId.load).not.toHaveBeenCalled();
+    });
+
+    it('takes the mapped lifts’ share of the track climb out of the recorded climb', async () => {
+      const ctx = createMockContext('user-123');
+      // Two mapped segments of 400 m each: 800 of the track's 2,500 m.
+      (ctx.loaders.liftSegmentsByRideId.load as jest.Mock).mockResolvedValue([liftSegment, liftSegment]);
+      const result = await resolver(row(), {}, ctx as never);
+      expect(ctx.loaders.liftSegmentsByRideId.load).toHaveBeenCalledWith('ride-1');
+      expect(result).toBeCloseTo(2000 * (1700 / 2500));
+    });
+
+    it('keeps the recorded climb when every detected segment was motion-only', async () => {
+      // The detector stored segments (lift columns set) but none matched a
+      // mapped lift, so the mapped-only loader returns nothing.
+      const ctx = createMockContext('user-123');
+      (ctx.loaders.liftSegmentsByRideId.load as jest.Mock).mockResolvedValue([]);
+      expect(await resolver(row(), {}, ctx as never)).toBe(2000);
     });
 
     it('keeps the lift climb when the rider counts it', async () => {
       const ctx = createMockContext('user-123');
-      const result = await resolver(
-        { id: 'ride-1', elevationGainMeters: 2000, liftDurationSeconds: 1800, liftElevationGainMeters: 1500, countLiftElevation: true },
-        {},
-        ctx as never
-      );
-      expect(result).toBe(2000);
+      (ctx.loaders.liftSegmentsByRideId.load as jest.Mock).mockResolvedValue([liftSegment]);
+      expect(await resolver(row({ countLiftElevation: true }), {}, ctx as never)).toBe(2000);
     });
 
     it('batch-loads the lift columns when the parent came from a narrow select', async () => {
       const ctx = createMockContext('user-123');
-      (ctx.loaders.liftFieldsByRideId.load as jest.Mock).mockResolvedValue({
-        elevationGainMeters: 1200,
-        liftDurationSeconds: 900,
-        liftElevationGainMeters: 700,
-        countLiftElevation: false,
-      });
+      (ctx.loaders.liftFieldsByRideId.load as jest.Mock).mockResolvedValue(row({ elevationGainMeters: 1200 }));
+      (ctx.loaders.liftSegmentsByRideId.load as jest.Mock).mockResolvedValue([liftSegment]);
       const result = await resolver({ id: 'ride-1', elevationGainMeters: 1200 }, {}, ctx as never);
       expect(ctx.loaders.liftFieldsByRideId.load).toHaveBeenCalledWith('ride-1');
-      expect(result).toBe(500);
+      expect(result).toBeCloseTo(1200 * (2100 / 2500));
     });
 
     it('falls back to the recorded climb when the batched lookup finds no ride', async () => {
@@ -8296,19 +8316,15 @@ describe('Ride lift detection', () => {
 
     it('is null without a segment query when the ride has no lift', async () => {
       const ctx = createMockContext('user-123');
-      const noLift = await resolver(
-        { id: 'ride-1', elevationGainMeters: 900, liftDurationSeconds: 0, liftElevationGainMeters: 0, countLiftElevation: null },
-        {},
-        ctx as never
-      );
-      const neverAnalyzed = await resolver(
-        { id: 'ride-2', elevationGainMeters: 900, liftDurationSeconds: null, liftElevationGainMeters: null, countLiftElevation: null },
-        {},
-        ctx as never
-      );
-      expect(noLift).toBeNull();
-      expect(neverAnalyzed).toBeNull();
+      expect(await resolver(row({ liftDurationSeconds: 0 }), {}, ctx as never)).toBeNull();
+      expect(await resolver(row({ id: 'ride-2', liftDurationSeconds: null }), {}, ctx as never)).toBeNull();
       expect(ctx.loaders.liftSegmentsByRideId.load).not.toHaveBeenCalled();
+    });
+
+    it('is null when every detected segment was motion-only', async () => {
+      const ctx = createMockContext('user-123');
+      (ctx.loaders.liftSegmentsByRideId.load as jest.Mock).mockResolvedValue([]);
+      expect(await resolver(row(), {}, ctx as never)).toBeNull();
     });
 
     it('is null when the batched lookup finds no ride', async () => {
@@ -8318,26 +8334,10 @@ describe('Ride lift detection', () => {
       expect(ctx.loaders.liftSegmentsByRideId.load).not.toHaveBeenCalled();
     });
 
-    it('still shows a lift that climbed nothing, so the rider can see it was detected', async () => {
-      const ctx = createMockContext('user-123');
-      (ctx.loaders.liftSegmentsByRideId.load as jest.Mock).mockResolvedValue([liftSegment]);
-      const result = await resolver(
-        { id: 'ride-1', elevationGainMeters: 900, liftDurationSeconds: 480, liftElevationGainMeters: 0, countLiftElevation: null },
-        {},
-        ctx as never
-      );
-      expect(result).toMatchObject({ segments: [liftSegment], elevationGainMeters: 0 });
-    });
-
-    it('returns the segments, the climb and the default choice', async () => {
+    it('returns the mapped segments, their summed climb and the default choice', async () => {
       const ctx = createMockContext('user-123');
       (ctx.loaders.liftSegmentsByRideId.load as jest.Mock).mockResolvedValue([liftSegment, liftSegment]);
-      const result = await resolver(
-        { id: 'ride-1', elevationGainMeters: 2000, liftDurationSeconds: 960, liftElevationGainMeters: 800, countLiftElevation: null },
-        {},
-        ctx as never
-      );
-      expect(result).toEqual({
+      expect(await resolver(row(), {}, ctx as never)).toEqual({
         segments: [liftSegment, liftSegment],
         elevationGainMeters: 800,
         countElevation: false,
@@ -8355,6 +8355,7 @@ describe('Ride lift detection', () => {
     const mutation = resolvers.Mutation.setRideLiftElevation;
     const mockFindFirst = prisma.ride.findFirst as jest.Mock;
     const mockUpdate = prisma.ride.update as jest.Mock;
+    const mockSegmentCount = prisma.rideSegment.count as jest.Mock;
 
     it('requires a signed-in rider', async () => {
       await expect(
@@ -8363,8 +8364,9 @@ describe('Ride lift detection', () => {
       expect(mockFindFirst).not.toHaveBeenCalled();
     });
 
-    it("saves the choice on the rider's own ride", async () => {
+    it("saves the choice on the rider's own ride with a mapped lift", async () => {
       mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: 900 });
+      mockSegmentCount.mockResolvedValue(2);
       const updated = { id: 'ride-1', countLiftElevation: true };
       mockUpdate.mockResolvedValue(updated);
 
@@ -8373,6 +8375,9 @@ describe('Ride lift detection', () => {
       expect(mockFindFirst).toHaveBeenCalledWith({
         where: { id: 'ride-1', userId: 'user-123' },
         select: { id: true, liftDurationSeconds: true },
+      });
+      expect(mockSegmentCount).toHaveBeenCalledWith({
+        where: { rideId: 'ride-1', kind: 'LIFT', liftOsmId: { not: null } },
       });
       expect(mockUpdate).toHaveBeenCalledWith({
         where: { id: 'ride-1' },
@@ -8383,6 +8388,7 @@ describe('Ride lift detection', () => {
 
     it('saves false, and clears the choice back to the default on null', async () => {
       mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: 900 });
+      mockSegmentCount.mockResolvedValue(1);
       mockUpdate.mockResolvedValue({ id: 'ride-1' });
 
       await mutation({}, { rideId: 'ride-1', count: false }, createMockContext('user-123') as never);
@@ -8402,13 +8408,23 @@ describe('Ride lift detection', () => {
       expect(mockUpdate).not.toHaveBeenCalled();
     });
 
-    it('refuses a ride with no detected lift', async () => {
+    it('refuses a ride with no lift segments without counting them', async () => {
       mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: 0 });
       await expect(
         mutation({}, { rideId: 'ride-1', count: false }, createMockContext('user-123') as never)
       ).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });
 
       mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: null });
+      await expect(
+        mutation({}, { rideId: 'ride-1', count: false }, createMockContext('user-123') as never)
+      ).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });
+      expect(mockSegmentCount).not.toHaveBeenCalled();
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('refuses a ride whose only segments are motion-only', async () => {
+      mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: 900 });
+      mockSegmentCount.mockResolvedValue(0);
       await expect(
         mutation({}, { rideId: 'ride-1', count: false }, createMockContext('user-123') as never)
       ).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });

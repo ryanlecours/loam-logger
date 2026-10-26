@@ -264,6 +264,13 @@ model Ride {
   liftElevationGainMeters Float?
   liftDistanceMeters      Float?
   liftDetectorVersion     Int?
+  // Climb summed over the whole stored track (every positive altitude step,
+  // lifts included), on the same scale as the lift segments' rise. It is the
+  // denominator that turns a lift's rise into a share of the ride's climb
+  // (lib/ride-lift.ts countedElevationGainMeters). Written by the lift
+  // worker; NULL for rides analyzed before this column until
+  // scripts/backfill-track-climb.ts fills them.
+  trackElevationGainMeters Float?
   // The rider's per-ride choice about the lift's climb: true counts
   // liftElevationGainMeters in this ride's elevation gain, false removes it.
   // NULL means no choice yet, which is not the same as either answer: the

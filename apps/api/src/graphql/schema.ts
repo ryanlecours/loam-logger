@@ -204,17 +204,21 @@ export const typeDefs = gql`
     updatedAt: String!
     weather: RideWeather
     """
-    Elevation gain after the rider's lift choice: elevationGainMeters minus the
-    climb a detected chairlift or gondola did, unless the rider chose to count
-    it (see lift). Equals elevationGainMeters when no lift was detected. Show
-    this as the ride's climb; elevationGainMeters stays the editable recorded
-    value. Wherever a lift-adjusted figure appears, credit
-    "© OpenStreetMap contributors" (https://www.openstreetmap.org/copyright).
+    Elevation gain after the rider's lift choice. When a mapped lift (see lift)
+    climbed for the rider and the climb is not counted, the lift's share of the
+    track's climb is taken out of elevationGainMeters proportionally, so it
+    reaches 0 only if every foot was on a lift. Equals elevationGainMeters when
+    no mapped lift was found or the rider counts it. Show this as the ride's
+    climb; elevationGainMeters stays the editable recorded value. Wherever a
+    lift-adjusted figure appears, credit "© OpenStreetMap contributors"
+    (https://www.openstreetmap.org/copyright).
     """
     countedElevationGainMeters: Float!
     """
     Lifts detected on this ride, and the rider's choice about their climb.
-    Null when no lift was detected (including rides never analyzed).
+    Only segments matched to a mapped lift (an OpenStreetMap aerialway) are
+    included; motion-only detections are left out. Null when there are none
+    (including rides never analyzed).
     """
     lift: RideLift
   }
@@ -1419,8 +1423,8 @@ export const typeDefs = gql`
     # Save whether a detected lift's climb counts in this ride's elevation gain
     # (true counts it, false removes it, null clears the answer back to the
     # default). Elevation only: lift time and distance are not affected. Fails
-    # with NOT_FOUND for another rider's ride and BAD_USER_INPUT when no lift
-    # was detected on the ride.
+    # with NOT_FOUND for another rider's ride and BAD_USER_INPUT when no mapped
+    # lift was found on the ride.
     setRideLiftElevation(rideId: ID!, count: Boolean): Ride!
     bulkUpdateComponentBaselines(input: BulkUpdateBaselinesInput!): [Component!]!
     acceptTerms(input: AcceptTermsInput!): AcceptTermsResult!
