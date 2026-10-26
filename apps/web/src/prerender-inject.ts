@@ -20,6 +20,10 @@ export type PrerenderRoute = {
    * Source of a regex matching every pathname this HTML file is served as
    * itself. On any other pathname the file is serving some other route of
    * the SPA and its static markup must stay hidden until React mounts.
+   *
+   * It is written straight into an inline regex literal in the guard
+   * script, so every "/" in it must be escaped as "\\/" and it must not
+   * contain "<"; buildGuard refuses a pattern that breaks either rule.
    */
   pathPattern: string;
   /**
@@ -67,8 +71,27 @@ export const PRERENDER_ROUTES: PrerenderRoute[] = [LANDING_ROUTE, GET_THE_APP_RO
  */
 export const SMART_BANNER_META = `<meta name="apple-itunes-app" content="app-id=${APPLE_APP_ID}">`;
 
-/** The signed-in app, mirroring the Disallow prefixes in public/robots.txt. */
-export const SIGNED_IN_PATH_PATTERN = '^\\/(dashboard|gear|rides|bikes|settings|admin|onboarding)(\\/|$)';
+/**
+ * The routes that are not for crawlers or for the banner: the signed-in app
+ * and the account-recovery pages. This is the Disallow list in
+ * public/robots.txt as one regex, and seo-files.test.ts fails if the two
+ * drift apart. The public pages (/, /app, /pricing, /login, /signup and the
+ * rest) keep the banner on purpose: they are where a visitor decides.
+ */
+export const SIGNED_IN_PATH_PATTERN =
+  '^\\/(dashboard|gear|rides|bikes|settings|admin|onboarding|auth|change-password|reset-password|forgot-password)(\\/|$)';
+
+/** The pattern is dropped into a regex literal; an unescaped "/" ends it early. */
+function assertInlinePattern(pattern: string): void {
+  if (/(^|[^\\])\//.test(pattern)) {
+    throw new Error(`prerender: path pattern ${pattern} has an unescaped "/" and would end the inline regex`);
+  }
+  // A pathname never needs "<", and "</script" anywhere inside the inline
+  // script ends it, however the slash is escaped in the regex.
+  if (pattern.includes('<')) {
+    throw new Error('prerender: path pattern must not contain "<", which could close the inline script');
+  }
+}
 
 /**
  * Builds the inline guard for one prerendered file. On any pathname the file
@@ -79,6 +102,8 @@ export const SIGNED_IN_PATH_PATTERN = '^\\/(dashboard|gear|rides|bikes|settings|
  * silently.
  */
 export function buildGuard(pathPattern: string): string {
+  assertInlinePattern(pathPattern);
+  assertInlinePattern(SIGNED_IN_PATH_PATTERN);
   return (
     '<style>html.lp-prerendered #root{visibility:hidden}</style>' +
     `<script>if(!/${pathPattern}/.test(location.pathname)){` +
@@ -117,11 +142,6 @@ export function assertPageMarkup(markup: string, minBytes: number): void {
   if (markup.length < minBytes) {
     throw new Error(`prerender: rendered markup is only ${markup.length} bytes; expected a full page`);
   }
-}
-
-/** Kept for the landing page's callers and tests. */
-export function assertLandingMarkup(markup: string): void {
-  assertPageMarkup(markup, LANDING_ROUTE.minBytes);
 }
 
 function escapeAttr(value: string): string {
@@ -176,9 +196,4 @@ export function injectPrerendered(html: string, markup: string, route: Prerender
   return withHead
     .replace('</head>', () => `${SMART_BANNER_META}${buildGuard(route.pathPattern)}</head>`)
     .replace(ROOT_MARKER, () => `<div id="root">${markup}</div>`);
-}
-
-/** The landing page into index.html. */
-export function injectLanding(html: string, markup: string): string {
-  return injectPrerendered(html, markup, LANDING_ROUTE);
 }

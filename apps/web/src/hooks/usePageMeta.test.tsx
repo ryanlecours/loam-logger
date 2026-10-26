@@ -63,7 +63,7 @@ describe('usePageMeta', () => {
     expect(canonicalTags()).toHaveLength(0);
   });
 
-  it('reuses a matching canonical already in the static head and leaves it in place', () => {
+  it('adopts a matching canonical already in the static head and removes it on unmount', () => {
     const existing = document.createElement('link');
     existing.setAttribute('rel', 'canonical');
     existing.setAttribute('href', 'https://loamlogger.app/app');
@@ -71,6 +71,25 @@ describe('usePageMeta', () => {
 
     const { unmount } = render(<Page title="App" canonical="https://loamlogger.app/app" />);
     expect(canonicalTags()).toHaveLength(1);
+    expect(canonicalTags()[0]).toBe(existing);
+
+    // Client-side navigation away: the next page must not inherit it.
+    unmount();
+    expect(canonicalTags()).toHaveLength(0);
+    const next = render(<Page title="Pricing" canonical="https://loamlogger.app/pricing" />);
+    expect(canonicalTags()).toHaveLength(1);
+    expect(canonicalTags()[0].getAttribute('href')).toBe('https://loamlogger.app/pricing');
+    next.unmount();
+  });
+
+  it('does not adopt a static canonical for a different URL', () => {
+    const existing = document.createElement('link');
+    existing.setAttribute('rel', 'canonical');
+    existing.setAttribute('href', 'https://loamlogger.app/app');
+    document.head.appendChild(existing);
+
+    const { unmount } = render(<Page title="Pricing" canonical="https://loamlogger.app/pricing" />);
+    expect(canonicalTags()).toHaveLength(2);
     unmount();
     expect(canonicalTags()).toHaveLength(1);
     expect(canonicalTags()[0]).toBe(existing);
