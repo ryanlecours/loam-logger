@@ -48,6 +48,7 @@ import Pricing from './pages/Pricing';
 import Disclaimer from './pages/Disclaimer';
 import About from './pages/About';
 import Support from './pages/Support';
+import GetTheApp from './pages/GetTheApp';
 import DeleteAccount from './pages/DeleteAccount';
 import DeleteAccountConfirm from './pages/DeleteAccountConfirm';
 
@@ -89,6 +90,7 @@ function AppRoutes() {
         <Routes location={location} key={location.pathname}>
           {/* Public */}
           <Route path="/" element={<MarketingLanding />} />
+          <Route path="/app" element={<GetTheApp />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/pricing" element={<Page><Pricing /></Page>} />

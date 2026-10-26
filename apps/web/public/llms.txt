@@ -1,6 +1,6 @@
 # Loam Logger
 
-> A mountain bike service tracker. It takes the hours from rides a rider already records on Garmin Connect, Strava or WHOOP, puts them on every installed component (fork, shock, dropper, brake pads, rotors, chain, cassette, pivot bearings, hubs, headset and more), and flags each part against its service interval. Web app at https://loamlogger.app and an iOS app. Built by Ryan LeCours at Loam Labs LLC in the Pacific Northwest.
+> A mountain bike service tracker. It takes the hours from rides a rider already records on Garmin Connect, Strava or WHOOP, puts them on every installed component (fork, shock, dropper, brake pads, rotors, chain, cassette, pivot bearings, hubs, headset and more), and flags each part against its service interval. Web app at https://loamlogger.app and the same account in the Loam Logger app for iOS (App Store) and Android (Google Play). Built by Ryan LeCours at Loam Labs LLC in the Pacific Northwest.
 
 ## What it does
 
@@ -25,7 +25,9 @@
 - Support: https://loamlogger.app/support
 - Privacy: https://loamlogger.app/privacy
 - Terms: https://loamlogger.app/terms
-- iOS app: https://apps.apple.com/us/app/loam-logger/id6761736134
+- Get the app (iOS and Android): https://loamlogger.app/app
+- iOS app on the App Store: https://apps.apple.com/us/app/loam-logger/id6761736134
+- Android app on Google Play: https://play.google.com/store/apps/details?id=com.loamlabs.loamlogger
 
 ## Attribution
 

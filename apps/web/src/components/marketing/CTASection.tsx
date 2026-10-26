@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import StoreBadges from './StoreBadges';
 
 export default function CTASection() {
   return (
@@ -15,21 +16,18 @@ export default function CTASection() {
       <div className="lp-container lp-cta__content">
         <h2 className="lp-cta__title">Drop in knowing your bike&apos;s dialed.</h2>
         <p className="lp-lede" style={{ maxWidth: '46ch' }}>
-          Connect a platform, add the bike, and the next ride starts the count.
+          Connect a platform, add the bike, and the next ride starts the count. On the web, or in
+          the app for iOS and Android.
         </p>
         <div className="lp-actions">
           <Link to="/signup" className="lp-btn lp-btn--primary">
             Start free
           </Link>
-          <a
-            href="https://apps.apple.com/us/app/loam-logger/id6761736134"
-            className="lp-btn lp-btn--ghost"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            iOS app<span className="sr-only"> (opens the App Store in a new tab)</span>
-          </a>
+          <Link to="/app" className="lp-btn lp-btn--ghost">
+            Get the app
+          </Link>
         </div>
+        <StoreBadges />
       </div>
     </section>
   );

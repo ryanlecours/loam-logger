@@ -1,7 +1,7 @@
 {
   "name": "Loam Logger",
   "short_name": "LoamLog",
-  "description": "Component wear intelligence for mountain bikers. Your rides sync automatically and clock hours against every component.",
+  "description": "A mountain bike service tracker. Rides sync from Garmin Connect, Strava or WHOOP and clock hours against every component. On the web, iOS and Android.",
   "icons": [
     {
       "src": "/web-app-manifest-192x192.png",
@@ -18,5 +18,18 @@
   ],
   "theme_color": "#0C0C0E",
   "background_color": "#0C0C0E",
-  "display": "standalone"
+  "display": "standalone",
+  "prefer_related_applications": true,
+  "related_applications": [
+    {
+      "platform": "play",
+      "id": "com.loamlabs.loamlogger",
+      "url": "https://play.google.com/store/apps/details?id=com.loamlabs.loamlogger"
+    },
+    {
+      "platform": "itunes",
+      "id": "6761736134",
+      "url": "https://apps.apple.com/us/app/loam-logger/id6761736134"
+    }
+  ]
 }

@@ -60,6 +60,13 @@ export default function LandingNavbar() {
               Pricing
             </Link>
             <Link
+              to="/app"
+              className="small transition-colors duration-200 hover:opacity-80"
+              style={{ color: 'var(--sage)' }}
+            >
+              Get the app
+            </Link>
+            <Link
               to="/login"
               className="small transition-colors duration-200 hover:opacity-80"
               style={{ color: 'var(--sage)' }}
@@ -162,6 +169,16 @@ export default function LandingNavbar() {
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
                 Pricing
+              </Link>
+              <Link
+                to="/app"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="block px-4 py-2 rounded-lg transition-colors small"
+                style={{ color: 'var(--sage)' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                Get the app
               </Link>
               <Link
                 to="/login"

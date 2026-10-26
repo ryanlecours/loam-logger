@@ -135,7 +135,15 @@ jobs:
               echo "❌ Error: the prerender guard is missing from dist/apps/web/index.html."
               exit 1
             fi
-            echo "✅ Web build carries the prerendered landing page and its guard"
+            if ! grep -q '<main class="lp"' dist/apps/web/app/index.html 2>/dev/null; then
+              echo "❌ Error: dist/apps/web/app/index.html is missing or empty; the /app prerender did not run."
+              exit 1
+            fi
+            if ! grep -q 'rel="canonical" href="https://loamlogger.app/app"' dist/apps/web/app/index.html; then
+              echo "❌ Error: dist/apps/web/app/index.html does not carry the /app head."
+              exit 1
+            fi
+            echo "✅ Web build carries the prerendered landing and /app pages and their guards"
           else
             echo "Web not affected, skipping prerender validation"
           fi

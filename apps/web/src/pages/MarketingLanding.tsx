@@ -17,7 +17,7 @@ export default function MarketingLanding() {
   usePageMeta({
     title: 'Loam Logger | Mountain bike service tracker',
     description:
-      'Loam Logger takes the hours from rides you already record on Garmin Connect, Strava or WHOOP, puts them on your fork, shock, pads, chain and bearings, and tells you which parts are due. Free for one bike.',
+      'Loam Logger takes the hours from rides you already record on Garmin Connect, Strava or WHOOP, puts them on your fork, shock, pads, chain and bearings, and tells you which parts are due. Free for one bike, on the web, iOS and Android.',
     canonical: 'https://loamlogger.app/',
   });
 

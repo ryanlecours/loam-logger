@@ -1,17 +1,27 @@
 import { PRO_PRICE_MONTHLY_USD, PRO_PRICE_YEARLY_USD } from '../../constants/pricing';
+import { APP_STORE_URL, PLAY_STORE_URL } from '../../constants/storeLinks';
 import { jsonLdString } from '../../prerender-inject';
 
 /**
  * Organization and SoftwareApplication structured data for the landing page.
  * Rendered here rather than in index.html so it is prerendered on "/" only,
  * and so the prices come from the same constant the pricing page uses.
+ *
+ * The App Store and Google Play listings are the same product, so they hang
+ * off the one SoftwareApplication node as `sameAs` rather than as separate
+ * applications: that is what lets a search engine tie the store pages to
+ * loamlogger.app as one entity. The /app page adds a MobileApplication node
+ * per store that points back at this node.
  */
+export const APP_NODE_ID = 'https://loamlogger.app/#app';
+export const ORG_NODE_ID = 'https://loamlogger.app/#org';
+
 const SITE_JSON_LD = {
   '@context': 'https://schema.org',
   '@graph': [
     {
       '@type': 'Organization',
-      '@id': 'https://loamlogger.app/#org',
+      '@id': ORG_NODE_ID,
       name: 'Loam Labs LLC',
       url: 'https://loamlogger.app/',
       logo: 'https://loamlogger.app/loamLoggerLogo_512x512.png',
@@ -19,13 +29,13 @@ const SITE_JSON_LD = {
     },
     {
       '@type': 'SoftwareApplication',
-      '@id': 'https://loamlogger.app/#app',
+      '@id': APP_NODE_ID,
       name: 'Loam Logger',
       url: 'https://loamlogger.app/',
       applicationCategory: 'SportsApplication',
-      operatingSystem: 'Web, iOS',
+      operatingSystem: 'Web, iOS, Android',
       description:
-        'A mountain bike service tracker. Rides sync from Garmin Connect, Strava or WHOOP, ride hours accrue against every installed component, and each part is flagged against its service interval.',
+        'A mountain bike service tracker. Rides sync from Garmin Connect, Strava or WHOOP, ride hours accrue against every installed component, and each part is flagged against its service interval. On the web, iOS and Android.',
       featureList: [
         'Automatic ride sync from Garmin Connect, Strava and WHOOP',
         'Hours on every component against a service interval you set',
@@ -33,8 +43,9 @@ const SITE_JSON_LD = {
         'Service log with dates and hours, shareable and exportable',
         'Bike spec import from 99spokes',
         'E-bike motor and battery hours',
+        'One account across the web app and the iOS and Android apps',
       ],
-      publisher: { '@id': 'https://loamlogger.app/#org' },
+      publisher: { '@id': ORG_NODE_ID },
       offers: [
         {
           '@type': 'Offer',
@@ -60,7 +71,7 @@ const SITE_JSON_LD = {
           description: 'The same Pro features, billed monthly.',
         },
       ],
-      sameAs: ['https://apps.apple.com/us/app/loam-logger/id6761736134'],
+      sameAs: [APP_STORE_URL, PLAY_STORE_URL],
     },
   ],
 };

@@ -62,4 +62,17 @@ describe('usePageMeta', () => {
     second.unmount();
     expect(canonicalTags()).toHaveLength(0);
   });
+
+  it('reuses a matching canonical already in the static head and leaves it in place', () => {
+    const existing = document.createElement('link');
+    existing.setAttribute('rel', 'canonical');
+    existing.setAttribute('href', 'https://loamlogger.app/app');
+    document.head.appendChild(existing);
+
+    const { unmount } = render(<Page title="App" canonical="https://loamlogger.app/app" />);
+    expect(canonicalTags()).toHaveLength(1);
+    unmount();
+    expect(canonicalTags()).toHaveLength(1);
+    expect(canonicalTags()[0]).toBe(existing);
+  });
 });
