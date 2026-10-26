@@ -34,9 +34,6 @@ jest.mock('../../lib/prisma', () => ({
       count: jest.fn().mockResolvedValue(0),
       aggregate: jest.fn(),
     },
-    rideSegment: {
-      count: jest.fn().mockResolvedValue(0),
-    },
     rideWeather: {
       groupBy: jest.fn().mockResolvedValue([]),
       findMany: jest.fn().mockResolvedValue([]),
@@ -8355,7 +8352,12 @@ describe('Ride lift detection', () => {
     const mutation = resolvers.Mutation.setRideLiftElevation;
     const mockFindFirst = prisma.ride.findFirst as jest.Mock;
     const mockUpdate = prisma.ride.update as jest.Mock;
-    const mockSegmentCount = prisma.rideSegment.count as jest.Mock;
+    // The guard reads the same loader as Ride.lift (chairlifts and gondolas only).
+    const ctxWithLifts = (segments: unknown[]) => {
+      const ctx = createMockContext('user-123');
+      (ctx.loaders.liftSegmentsByRideId.load as jest.Mock).mockResolvedValue(segments);
+      return ctx;
+    };
 
     it('requires a signed-in rider', async () => {
       await expect(
@@ -8364,21 +8366,19 @@ describe('Ride lift detection', () => {
       expect(mockFindFirst).not.toHaveBeenCalled();
     });
 
-    it("saves the choice on the rider's own ride with a mapped lift", async () => {
+    it("saves the choice on the rider's own ride with a chairlift", async () => {
       mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: 900 });
-      mockSegmentCount.mockResolvedValue(2);
       const updated = { id: 'ride-1', countLiftElevation: true };
       mockUpdate.mockResolvedValue(updated);
+      const ctx = ctxWithLifts([liftSegment, liftSegment]);
 
-      const result = await mutation({}, { rideId: 'ride-1', count: true }, createMockContext('user-123') as never);
+      const result = await mutation({}, { rideId: 'ride-1', count: true }, ctx as never);
 
       expect(mockFindFirst).toHaveBeenCalledWith({
         where: { id: 'ride-1', userId: 'user-123' },
         select: { id: true, liftDurationSeconds: true },
       });
-      expect(mockSegmentCount).toHaveBeenCalledWith({
-        where: { rideId: 'ride-1', kind: 'LIFT', liftOsmId: { not: null } },
-      });
+      expect(ctx.loaders.liftSegmentsByRideId.load).toHaveBeenCalledWith('ride-1');
       expect(mockUpdate).toHaveBeenCalledWith({
         where: { id: 'ride-1' },
         data: { countLiftElevation: true },
@@ -8388,13 +8388,12 @@ describe('Ride lift detection', () => {
 
     it('saves false, and clears the choice back to the default on null', async () => {
       mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: 900 });
-      mockSegmentCount.mockResolvedValue(1);
       mockUpdate.mockResolvedValue({ id: 'ride-1' });
 
-      await mutation({}, { rideId: 'ride-1', count: false }, createMockContext('user-123') as never);
+      await mutation({}, { rideId: 'ride-1', count: false }, ctxWithLifts([liftSegment]) as never);
       expect(mockUpdate).toHaveBeenLastCalledWith({ where: { id: 'ride-1' }, data: { countLiftElevation: false } });
 
-      await mutation({}, { rideId: 'ride-1', count: null }, createMockContext('user-123') as never);
+      await mutation({}, { rideId: 'ride-1', count: null }, ctxWithLifts([liftSegment]) as never);
       expect(mockUpdate).toHaveBeenLastCalledWith({ where: { id: 'ride-1' }, data: { countLiftElevation: null } });
     });
 
@@ -8408,25 +8407,26 @@ describe('Ride lift detection', () => {
       expect(mockUpdate).not.toHaveBeenCalled();
     });
 
-    it('refuses a ride with no lift segments without counting them', async () => {
+    it('refuses a ride with no lift segments without loading them', async () => {
+      const ctx = ctxWithLifts([liftSegment]);
       mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: 0 });
       await expect(
-        mutation({}, { rideId: 'ride-1', count: false }, createMockContext('user-123') as never)
+        mutation({}, { rideId: 'ride-1', count: false }, ctx as never)
       ).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });
 
       mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: null });
       await expect(
-        mutation({}, { rideId: 'ride-1', count: false }, createMockContext('user-123') as never)
+        mutation({}, { rideId: 'ride-1', count: false }, ctx as never)
       ).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });
-      expect(mockSegmentCount).not.toHaveBeenCalled();
+      expect(ctx.loaders.liftSegmentsByRideId.load).not.toHaveBeenCalled();
       expect(mockUpdate).not.toHaveBeenCalled();
     });
 
-    it('refuses a ride whose only segments are motion-only', async () => {
+    it('refuses a ride whose segments are motion-only or surface lifts', async () => {
+      // The loader already left those out, so it returns nothing.
       mockFindFirst.mockResolvedValue({ id: 'ride-1', liftDurationSeconds: 900 });
-      mockSegmentCount.mockResolvedValue(0);
       await expect(
-        mutation({}, { rideId: 'ride-1', count: false }, createMockContext('user-123') as never)
+        mutation({}, { rideId: 'ride-1', count: false }, ctxWithLifts([]) as never)
       ).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });
       expect(mockUpdate).not.toHaveBeenCalled();
     });

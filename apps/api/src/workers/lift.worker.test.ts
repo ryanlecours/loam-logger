@@ -67,8 +67,11 @@ const mockGetLiftLines = getLiftLines as jest.Mock;
 
 /** What the stream says the ride descended; see "fills descent" below. */
 const STREAM_DESCENT = 842.5;
-/** What the whole track climbed, lifts included (Ride.trackElevationGainMeters). */
-const STREAM_CLIMB = 1210.4;
+/**
+ * What the whole track climbed, lifts included (Ride.trackElevationGainMeters):
+ * POINTS rise from 1,000 to 1,010 m, past the hysteresis threshold.
+ */
+const STREAM_CLIMB = 10;
 
 const makeJob = (rideId = 'ride-1', data: { requireGeometry?: boolean; force?: boolean } = {}) =>
   ({ data: { rideId, ...data }, id: 'job-1' }) as never;
@@ -115,7 +118,7 @@ describe('processLiftJob', () => {
     mockGetLiftLines.mockResolvedValue({ geometryAvailable: true, liftLines: [] });
     mockPointsFromStream.mockReturnValue(POINTS);
     mockDetect.mockReturnValue([]);
-    mockAdjusted.mockReturnValue({ elevationLossMeters: STREAM_DESCENT, elevationGainMeters: STREAM_CLIMB });
+    mockAdjusted.mockReturnValue({ elevationLossMeters: STREAM_DESCENT });
   });
 
   it('skips when the ride does not exist', async () => {
@@ -309,9 +312,8 @@ describe('processLiftJob', () => {
 
     await processLiftJob(makeJob());
 
-    // Only the whole-track climb is summed; no lift-aware descent sum runs.
-    expect(mockAdjusted).toHaveBeenCalledTimes(1);
-    expect(mockAdjusted).toHaveBeenCalledWith(POINTS, []);
+    // No lift-aware descent sum runs; the track climb is still written.
+    expect(mockAdjusted).not.toHaveBeenCalled();
     const data = mockTx.ride.update.mock.calls[0][0].data;
     expect(data).not.toHaveProperty('elevationLossMeters');
     expect(data.trackElevationGainMeters).toBe(STREAM_CLIMB);
@@ -428,10 +430,10 @@ describe('processLiftJob', () => {
       },
     });
     // Descent is summed over the whole track with the lift segments known,
-    // so the pure function gets both. The track climb is summed with no
-    // segments: it is the whole track's climb, lifts included.
+    // so the pure function gets both. The track climb gets the segments too
+    // (lib/ride-lift.ts trackClimbMeters); SEGMENT's indexes fall outside the
+    // two-point POINTS, so here it is the plain smoothed climb.
     expect(mockAdjusted).toHaveBeenCalledWith(POINTS, [SEGMENT]);
-    expect(mockAdjusted).toHaveBeenCalledWith(POINTS, []);
   });
 
   it('records "analyzed, no lift" as zero deltas at the current version', async () => {
