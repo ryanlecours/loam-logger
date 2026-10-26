@@ -10,6 +10,7 @@ import { getValidStravaToken } from '../lib/strava-token';
 import { fetchStravaStreams } from '../lib/strava-streams';
 import type { NormalizedStreams } from '../lib/ride-streams';
 import { saveRideStream } from '../lib/ride-stream-store';
+import { trackClimbMeters } from '../lib/ride-lift';
 import {
   DETECTOR_VERSION,
   DEFAULT_OPTIONS,
@@ -236,6 +237,7 @@ export async function processLiftJob(
         liftElevationGainMeters: detected.reduce((a, s) => a + s.elevationGainMeters, 0),
         liftDistanceMeters: detected.reduce((a, s) => a + s.distanceMeters, 0),
         liftDetectorVersion: DETECTOR_VERSION,
+        trackElevationGainMeters: trackClimbMeters(points),
         ...(derivedElevationLoss != null ? { elevationLossMeters: derivedElevationLoss } : {}),
       },
     });

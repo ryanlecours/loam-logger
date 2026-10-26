@@ -9,6 +9,7 @@ jest.mock('./prisma', () => ({
 import { prisma } from './prisma';
 import {
   LIFT_ELEVATION_COUNTED_BY_DEFAULT,
+  MAPPED_LIFT_SEGMENT_WHERE,
   batchLiftFieldsByRideId,
   batchLiftSegmentsByRideId,
   buildRideLift,
@@ -16,6 +17,9 @@ import {
   countsLiftElevation,
   hasDetectedLift,
   liftKindFromAerialway,
+  liftRiseMeters,
+  trackClimbMeters,
+  type LiftElevationFields,
 } from './ride-lift';
 
 const mockPrisma = prisma as unknown as {
@@ -23,6 +27,17 @@ const mockPrisma = prisma as unknown as {
   rideSegment: { findMany: jest.Mock };
   liftGeometryLine: { findMany: jest.Mock };
 };
+
+const FT = 0.3048;
+
+const fields = (overrides: Partial<LiftElevationFields> = {}): LiftElevationFields => ({
+  elevationGainMeters: 2000,
+  liftDurationSeconds: 1800,
+  liftElevationGainMeters: 1500,
+  trackElevationGainMeters: 2500,
+  countLiftElevation: null,
+  ...overrides,
+});
 
 describe('ride-lift', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -51,39 +66,68 @@ describe('ride-lift', () => {
     });
   });
 
-  describe('countedElevationGainMeters', () => {
-    const base = { elevationGainMeters: 2000, liftDurationSeconds: 1800, liftElevationGainMeters: 1500 };
+  describe('liftRiseMeters', () => {
+    it('sums the segments, ignoring a segment that lost height', () => {
+      expect(liftRiseMeters([{ elevationGainMeters: 400 }, { elevationGainMeters: 300 }])).toBe(700);
+      expect(liftRiseMeters([{ elevationGainMeters: 400 }, { elevationGainMeters: -20 }])).toBe(400);
+      expect(liftRiseMeters([])).toBe(0);
+    });
+  });
 
-    it('removes the lift climb by default', () => {
-      expect(countedElevationGainMeters({ ...base, countLiftElevation: null })).toBe(500);
+  describe('trackClimbMeters', () => {
+    const pt = (t: number, ele: number) => ({ t, ele, lat: 50.1, lng: -122.9 });
+
+    it('sums every positive step over the whole track', () => {
+      expect(trackClimbMeters([pt(0, 100), pt(10, 150), pt(20, 120), pt(30, 200)])).toBe(130);
     });
 
-    it('removes it when the rider chose not to count it', () => {
-      expect(countedElevationGainMeters({ ...base, countLiftElevation: false })).toBe(500);
+    it('is null for a track too short to climb', () => {
+      expect(trackClimbMeters(null)).toBeNull();
+      expect(trackClimbMeters([pt(0, 100)])).toBeNull();
+    });
+
+    it('is null rather than a non-finite climb for a malformed altitude series', () => {
+      expect(trackClimbMeters([pt(0, 100), pt(10, Number.POSITIVE_INFINITY), pt(20, 140)])).toBeNull();
+    });
+  });
+
+  describe('countedElevationGainMeters', () => {
+    it('takes the lift share of the track climb out of the recorded climb', () => {
+      // Lift did 1,500 of the track's 2,500 m, so 40% of the recorded 2,000 m counts.
+      expect(countedElevationGainMeters(fields(), 1500)).toBeCloseTo(800);
+      expect(countedElevationGainMeters(fields({ countLiftElevation: false }), 1500)).toBeCloseTo(800);
+    });
+
+    it('does not wipe out a ride whose lift rose more than the recorded total', () => {
+      // The Whistler case: 7,468 ft of lift rise against 6,711 ft recorded used
+      // to count 0. With a track climb of 8,600 ft, 1,132 ft of it was ridden.
+      const counted = countedElevationGainMeters(
+        fields({ elevationGainMeters: 6711 * FT, trackElevationGainMeters: 8600 * FT }),
+        7468 * FT
+      );
+      expect(counted / FT).toBeCloseTo(6711 * (1132 / 8600));
+      expect(counted).toBeGreaterThan(0);
+    });
+
+    it('reaches zero only when every foot of the track was on a lift', () => {
+      expect(countedElevationGainMeters(fields({ trackElevationGainMeters: 1500 }), 1500)).toBe(0);
+      expect(countedElevationGainMeters(fields({ trackElevationGainMeters: 1400 }), 1500)).toBe(0);
     });
 
     it('keeps the recorded climb when the rider counts the lift', () => {
-      expect(countedElevationGainMeters({ ...base, countLiftElevation: true })).toBe(2000);
+      expect(countedElevationGainMeters(fields({ countLiftElevation: true }), 1500)).toBe(2000);
     });
 
-    it('keeps the recorded climb on a ride with no lift or never analyzed', () => {
-      expect(
-        countedElevationGainMeters({ elevationGainMeters: 800, liftDurationSeconds: 0, liftElevationGainMeters: 0, countLiftElevation: null })
-      ).toBe(800);
-      expect(
-        countedElevationGainMeters({ elevationGainMeters: 800, liftDurationSeconds: null, liftElevationGainMeters: null, countLiftElevation: null })
-      ).toBe(800);
+    it('keeps the recorded climb with no mapped lift rise', () => {
+      expect(countedElevationGainMeters(fields(), 0)).toBe(2000);
+      expect(countedElevationGainMeters(fields({ liftDurationSeconds: null, trackElevationGainMeters: null }), 0)).toBe(2000);
     });
 
-    it('keeps the recorded climb for a lift that climbed nothing, whatever the choice', () => {
+    it('falls back to the subtraction, floored at zero, before the track climb is known', () => {
+      expect(countedElevationGainMeters(fields({ trackElevationGainMeters: null }), 1500)).toBe(500);
+      expect(countedElevationGainMeters(fields({ trackElevationGainMeters: 0 }), 1500)).toBe(500);
       expect(
-        countedElevationGainMeters({ elevationGainMeters: 800, liftDurationSeconds: 600, liftElevationGainMeters: 0, countLiftElevation: false })
-      ).toBe(800);
-    });
-
-    it('floors at zero when the recorded climb was edited below the lift share', () => {
-      expect(
-        countedElevationGainMeters({ elevationGainMeters: 300, liftDurationSeconds: 1800, liftElevationGainMeters: 1500, countLiftElevation: null })
+        countedElevationGainMeters(fields({ elevationGainMeters: 300, trackElevationGainMeters: null }), 1500)
       ).toBe(0);
     });
   });
@@ -117,19 +161,12 @@ describe('ride-lift', () => {
       kind: 'CHAIRLIFT' as const,
     };
 
-    it('is null when no segment was detected', () => {
-      expect(
-        buildRideLift({ elevationGainMeters: 900, liftDurationSeconds: 0, liftElevationGainMeters: 0, countLiftElevation: null }, [])
-      ).toBeNull();
+    it('is null when no mapped lift was found', () => {
+      expect(buildRideLift(fields(), [])).toBeNull();
     });
 
-    it('reports the stored climb and the effective and saved choice', () => {
-      expect(
-        buildRideLift({ elevationGainMeters: 900, liftDurationSeconds: 960, liftElevationGainMeters: 800, countLiftElevation: null }, [
-          segment,
-          segment,
-        ])
-      ).toEqual({
+    it('sums the mapped segments, not the Ride column that also holds motion-only ones', () => {
+      expect(buildRideLift(fields({ liftElevationGainMeters: 1500 }), [segment, segment])).toEqual({
         segments: [segment, segment],
         elevationGainMeters: 800,
         countElevation: false,
@@ -137,12 +174,8 @@ describe('ride-lift', () => {
       });
     });
 
-    it('sums the segments when the ride column is missing', () => {
-      const lift = buildRideLift(
-        { elevationGainMeters: 900, liftDurationSeconds: 960, liftElevationGainMeters: null, countLiftElevation: true },
-        [segment, segment]
-      );
-      expect(lift?.elevationGainMeters).toBe(800);
+    it('reports a saved answer', () => {
+      const lift = buildRideLift(fields({ countLiftElevation: true }), [segment]);
       expect(lift?.countElevation).toBe(true);
       expect(lift?.countElevationChoice).toBe(true);
     });
@@ -150,19 +183,19 @@ describe('ride-lift', () => {
 
   describe('batchLiftFieldsByRideId', () => {
     it('returns rows in key order with null for missing rides', async () => {
-      mockPrisma.ride.findMany.mockResolvedValue([
-        { id: 'b', elevationGainMeters: 10, liftDurationSeconds: 600, liftElevationGainMeters: 5, countLiftElevation: true },
-      ]);
+      const row = { id: 'b', ...fields() };
+      mockPrisma.ride.findMany.mockResolvedValue([row]);
       const rows = await batchLiftFieldsByRideId(['a', 'b']);
-      expect(rows).toEqual([
-        null,
-        { id: 'b', elevationGainMeters: 10, liftDurationSeconds: 600, liftElevationGainMeters: 5, countLiftElevation: true },
-      ]);
+      expect(rows).toEqual([null, row]);
+      expect(mockPrisma.ride.findMany.mock.calls[0][0].select).toMatchObject({
+        trackElevationGainMeters: true,
+        liftDurationSeconds: true,
+      });
     });
   });
 
   describe('batchLiftSegmentsByRideId', () => {
-    const seg = (rideId: string, liftOsmId: string | null, liftName: string | null) => ({
+    const seg = (rideId: string, liftOsmId: string, liftName: string | null) => ({
       rideId,
       startTime: new Date('2026-08-01T10:00:00Z'),
       endTime: new Date('2026-08-01T10:08:00Z'),
@@ -173,12 +206,23 @@ describe('ride-lift', () => {
       liftOsmId,
     });
 
+    it('asks only for segments matched to a mapped lift', async () => {
+      mockPrisma.rideSegment.findMany.mockResolvedValue([]);
+      await batchLiftSegmentsByRideId(['r1']);
+      expect(mockPrisma.rideSegment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { rideId: { in: ['r1'] }, kind: 'LIFT', liftOsmId: { not: null } },
+        })
+      );
+      expect(MAPPED_LIFT_SEGMENT_WHERE).toEqual({ kind: 'LIFT', liftOsmId: { not: null } });
+      expect(mockPrisma.liftGeometryLine.findMany).not.toHaveBeenCalled();
+    });
+
     it('groups segments by ride and reads kinds from the active snapshot only', async () => {
       mockPrisma.rideSegment.findMany.mockResolvedValue([
         seg('r1', '111', 'Garbanzo Express'),
-        seg('r1', null, null),
         seg('r2', '222', 'Village Gondola'),
-        seg('r2', '333', null),
+        seg('r2', '333', 'Old Chair'),
       ]);
       mockPrisma.liftGeometryLine.findMany.mockResolvedValue([
         { osmId: '111', kind: 'chair_lift' },
@@ -187,32 +231,19 @@ describe('ride-lift', () => {
 
       const [r1, r2, r3] = await batchLiftSegmentsByRideId(['r1', 'r2', 'r3']);
 
-      expect(mockPrisma.rideSegment.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { rideId: { in: ['r1', 'r2', 'r3'] }, kind: 'LIFT' } })
-      );
       expect(mockPrisma.liftGeometryLine.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { osmId: { in: ['111', '222', '333'] }, import: { status: 'ACTIVE' } },
         })
       );
-      expect(r1.map((s) => [s.liftName, s.kind])).toEqual([
-        ['Garbanzo Express', 'CHAIRLIFT'],
-        [null, null],
-      ]);
-      // 333 is not in the active snapshot: no kind, not a guess.
+      expect(r1.map((s) => [s.liftName, s.kind])).toEqual([['Garbanzo Express', 'CHAIRLIFT']]);
+      // 333 is not in the active snapshot: it keeps its name, with no kind.
       expect(r2.map((s) => [s.liftName, s.kind])).toEqual([
         ['Village Gondola', 'GONDOLA'],
-        [null, null],
+        ['Old Chair', null],
       ]);
       expect(r3).toEqual([]);
       expect(r1[0]).not.toHaveProperty('liftOsmId');
-    });
-
-    it('skips the snapshot lookup when no segment was matched to a lift', async () => {
-      mockPrisma.rideSegment.findMany.mockResolvedValue([seg('r1', null, null)]);
-      const [r1] = await batchLiftSegmentsByRideId(['r1']);
-      expect(mockPrisma.liftGeometryLine.findMany).not.toHaveBeenCalled();
-      expect(r1).toHaveLength(1);
     });
   });
 });
