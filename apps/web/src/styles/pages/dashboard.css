@@ -4533,6 +4533,11 @@
   opacity: 0.5;
 }
 
+.compact-ride-lift {
+  display: flex;
+  margin-top: 0.375rem;
+}
+
 .compact-ride-bike {
   font-size: 0.6875rem;
   color: var(--mint);

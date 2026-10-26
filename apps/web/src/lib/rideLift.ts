@@ -63,6 +63,29 @@ export function liftTagLabel(kinds: ReadonlyArray<RideLiftKind | null | undefine
   return 'Lift detected';
 }
 
+/** The Rides page's optional lift filter. */
+export type LiftFilter = 'all' | 'lift' | 'noLift';
+
+export const LIFT_FILTER_OPTIONS: ReadonlyArray<{ value: LiftFilter; label: string }> = [
+  { value: 'all', label: 'All rides' },
+  { value: 'lift', label: 'Chairlift or gondola' },
+  { value: 'noLift', label: 'No lift' },
+];
+
+/**
+ * Rides kept by the lift filter. `lift` is null unless the ride was matched
+ * to a mapped chairlift or gondola, the same rule that shows the row tag, so
+ * the filter and the tag always agree.
+ */
+export function filterRidesByLift<T extends { lift?: RideLiftSummary | null }>(
+  rides: ReadonlyArray<T>,
+  filter: LiftFilter
+): T[] {
+  if (filter === 'lift') return rides.filter((r) => r.lift != null);
+  if (filter === 'noLift') return rides.filter((r) => r.lift == null);
+  return [...rides];
+}
+
 /** "3 laps", one per trip up, the way riders count a lift day. */
 export function liftLapCount(count: number): string {
   return `${count} ${count === 1 ? 'lap' : 'laps'}`;

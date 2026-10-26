@@ -75,12 +75,6 @@ export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowPro
             <span>
               {descent == null ? `${climb} ${climbUnit}` : `↑ ${climb} ↓ ${descent} ${climbUnit}`}
             </span>
-            {ride.lift && (
-              <>
-                <span className="compact-ride-meta-sep">&bull;</span>
-                <LiftTag lift={ride.lift} />
-              </>
-            )}
             {ride.weather && (
               <>
                 <span className="compact-ride-meta-sep">&bull;</span>
@@ -88,6 +82,12 @@ export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowPro
               </>
             )}
           </div>
+          {/* Own line: inline, the pill squeezed the date and stats into wrapping. */}
+          {ride.lift && (
+            <div className="compact-ride-lift">
+              <LiftTag lift={ride.lift} />
+            </div>
+          )}
           {bikeName ? (
             <div className="compact-ride-bike">
               {bikeName}

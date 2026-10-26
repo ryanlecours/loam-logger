@@ -1,7 +1,7 @@
 // src/pages/Rides.tsx
 import { useQuery } from "@apollo/client";
 import { Link } from "react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import AddRideForm from "../components/AddRideForm";
 import RideCard from "../components/RideCard";
 import RideStatsCard from "../components/RideStatsCard";
@@ -9,7 +9,7 @@ import { MassAssignBikeModal } from "../components/MassAssignBikeModal";
 import { RIDES } from '../graphql/rides';
 import { BIKES } from '../graphql/bikes';
 import type { Ride } from '../models/Ride';
-import { showsLiftData } from '../lib/rideLift';
+import { filterRidesByLift, LIFT_FILTER_OPTIONS, showsLiftData, type LiftFilter } from '../lib/rideLift';
 import OsmCredit from '../components/attribution/OsmCredit';
 
 type Bike = {
@@ -89,6 +89,7 @@ const getDateRangeFilter = (range: DateRange) => {
 export default function RidesPage() {
   const [dateRange, setDateRange] = useState<DateRange>('30days');
   const [showMassAssignModal, setShowMassAssignModal] = useState(false);
+  const [liftFilter, setLiftFilter] = useState<LiftFilter>('all');
 
   const { data, refetch, loading, error } = useQuery<{ rides: Ride[] }>(RIDES, {
     fetchPolicy: 'cache-and-network',
@@ -99,8 +100,16 @@ export default function RidesPage() {
   const { data: bikesData } = useQuery<{ bikes: Bike[] }>(BIKES, {
     fetchPolicy: 'cache-and-network',
   });
-  const rides = data?.rides ?? EMPTY_RIDES;
+  const allRides = data?.rides ?? EMPTY_RIDES;
   const bikes = bikesData?.bikes ?? EMPTY_BIKES;
+  // Client-side: the list already carries each ride's lift, and the query
+  // returns every ride in the date range.
+  const rides = useMemo(() => filterRidesByLift(allRides, liftFilter), [allRides, liftFilter]);
+  // Short, so the stats card header stays on one line.
+  const statsLabel =
+    liftFilter === 'all'
+      ? getDateRangeLabel(dateRange)
+      : `${getDateRangeLabel(dateRange)}, ${liftFilter === 'lift' ? 'lift rides' : 'no lift'}`;
 
   return (
     <div className="page-container space-y-6">
@@ -199,8 +208,27 @@ export default function RidesPage() {
                 ))}
               </select>
             </div>
+            <p className="label-section mt-4 mb-3" id="lift-filter-label">Filter by lift</p>
+            <div className="flex flex-wrap gap-4" role="radiogroup" aria-labelledby="lift-filter-label">
+              {LIFT_FILTER_OPTIONS.map((option) => (
+                <label
+                  key={option.value}
+                  className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors"
+                >
+                  <input
+                    type="radio"
+                    name="liftFilter"
+                    checked={liftFilter === option.value}
+                    onChange={() => setLiftFilter(option.value)}
+                    className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
             <p className="mt-3 text-xs text-muted">
               Showing {rides.length} ride{rides.length !== 1 ? 's' : ''} in selected range
+              {liftFilter !== 'all' && ` (${allRides.length} in all)`}
             </p>
           </div>
 
@@ -214,7 +242,18 @@ export default function RidesPage() {
 
           {error && <div className="text-sm text-danger">Couldn't load rides. {error.message}</div>}
 
-          {!loading && !error && rides.length === 0 && (
+          {!loading && !error && rides.length === 0 && allRides.length > 0 && (
+            <div className="rounded-xl border border-dashed border-app/50 px-4 py-6 text-center text-sm text-muted">
+              {liftFilter === 'lift'
+                ? 'No rides with a chairlift or gondola in this range.'
+                : 'Every ride in this range used a chairlift or gondola.'}{' '}
+              <button type="button" className="text-accent underline" onClick={() => setLiftFilter('all')}>
+                Show all rides
+              </button>
+            </div>
+          )}
+
+          {!loading && !error && allRides.length === 0 && (
             <div className="rounded-xl border border-dashed border-app/50 px-4 py-6 text-center text-sm text-muted">
               No rides logged yet. Start with the form above or{' '}
               <span className="text-accent">connect your Garmin account in Settings.</span>
@@ -233,7 +272,7 @@ export default function RidesPage() {
         </section>
 
         <aside className="lg:col-span-1">
-          <RideStatsCard rides={rides} filterLabel={getDateRangeLabel(dateRange)} />
+          <RideStatsCard rides={rides} filterLabel={statsLabel} />
         </aside>
       </div>
 
