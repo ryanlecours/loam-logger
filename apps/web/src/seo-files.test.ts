@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { formatUsd, PRO_PRICE_MONTHLY_USD, PRO_PRICE_YEARLY_USD } from './constants/pricing';
 import { ANDROID_PACKAGE, APP_STORE_URL, APPLE_APP_ID, PLAY_STORE_URL } from './constants/storeLinks';
+import { SIGNED_IN_PATH_PATTERN } from './prerender-inject';
 
 /**
  * The crawler files in public/ are static text. These checks keep them from
@@ -44,10 +45,8 @@ describe('sitemap.xml', () => {
     expect(locs).toContain('https://loamlogger.app/app');
   });
 
-  it('dates its lastmod entries as full ISO days', () => {
-    const dates = [...xml.matchAll(/<lastmod>([^<]+)<\/lastmod>/g)].map((m) => m[1]);
-    expect(dates.length).toBeGreaterThan(0);
-    for (const d of dates) expect(d).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  it('carries no lastmod, since nothing keeps a hand-written date honest', () => {
+    expect(xml).not.toContain('<lastmod>');
   });
 });
 
@@ -63,6 +62,20 @@ describe('robots.txt', () => {
 
   it('leaves the download page crawlable', () => {
     expect(txt).not.toMatch(/Disallow: \/app\b/);
+  });
+
+  it('matches the paths the Smart App Banner guard removes the banner on, so neither list drifts', () => {
+    const disallowed = [...txt.matchAll(/^Disallow:\s*(\S+)/gm)].map((m) => m[1]);
+    expect(disallowed.length).toBeGreaterThan(0);
+    const re = new RegExp(SIGNED_IN_PATH_PATTERN);
+    for (const route of disallowed) {
+      expect(re.test(route), `${route} is disallowed in robots.txt but keeps the banner`).toBe(true);
+      expect(re.test(`${route.replace(/\/$/, '')}/x`)).toBe(true);
+    }
+    const names = SIGNED_IN_PATH_PATTERN.match(/\(([^)]+)\)/)![1].split('|');
+    for (const name of names) {
+      expect(disallowed.some((d) => d === `/${name}` || d === `/${name}/`), `/${name} loses the banner but is not in robots.txt`).toBe(true);
+    }
   });
 });
 

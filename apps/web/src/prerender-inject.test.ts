@@ -3,14 +3,16 @@ import {
   applyRouteHead,
   buildGuard,
   GET_THE_APP_ROUTE,
-  injectLanding,
   injectPrerendered,
   jsonLdString,
+  LANDING_ROUTE,
   PRERENDER_GUARD,
   ROOT_MARKER,
   SIGNED_IN_PATH_PATTERN,
   SMART_BANNER_META,
 } from './prerender-inject';
+
+const injectLanding = (html: string, markup: string) => injectPrerendered(html, markup, LANDING_ROUTE);
 
 const html =
   '<!doctype html><html><head><title>t</title>' +
@@ -94,12 +96,18 @@ describe('injectLanding', () => {
     expect(PRERENDER_GUARD).toContain(`if(/${SIGNED_IN_PATH_PATTERN}/.test(location.pathname))`);
     expect(PRERENDER_GUARD).toContain('meta[name="apple-itunes-app"]');
     const re = new RegExp(SIGNED_IN_PATH_PATTERN);
-    for (const p of ['/dashboard', '/gear/abc', '/rides', '/bikes/1', '/settings', '/admin', '/onboarding/']) {
+    for (const p of ['/dashboard', '/gear/abc', '/rides', '/bikes/1', '/settings', '/admin', '/onboarding/', '/auth/complete', '/reset-password']) {
       expect(re.test(p)).toBe(true);
     }
-    for (const p of ['/', '/app', '/pricing', '/about', '/support', '/login', '/signup', '/gearbox']) {
+    for (const p of ['/', '/app', '/pricing', '/about', '/support', '/login', '/signup', '/gearbox', '/verify-email']) {
       expect(re.test(p)).toBe(false);
     }
+  });
+
+  it('refuses a path pattern that would break out of the inline regex or script', () => {
+    expect(() => buildGuard('^/app$')).toThrow(/unescaped/);
+    expect(() => buildGuard('^\\/app<\\/script>$')).toThrow(/must not contain "<"/);
+    expect(() => buildGuard('^\\/app\\/?$')).not.toThrow();
   });
 });
 
