@@ -12,6 +12,7 @@ import { usePreferences } from '../hooks/usePreferences';
 import { useUserTier } from '../hooks/useUserTier';
 import RideWeatherPanel from './RideWeatherPanel';
 import RideTrackMap from './RideTrackMap';
+import RideLiftPanel from './RideLiftPanel';
 import { UpsellCard } from './UpgradePrompt';
 import type { RideWeather } from '../models/Ride';
 
@@ -146,6 +147,7 @@ export default function EditRideModal({
       }
     >
       <RideTrackMap rideId={ride.id} />
+      <RideLiftPanel rideId={ride.id} />
 
       <form onSubmit={onSave} className="mt-4 space-y-4">
         <Input
@@ -183,6 +185,8 @@ export default function EditRideModal({
             value={distanceInput}
             onChange={e => setDistanceInput(Number(e.target.value))}
           />
+          {/* The recorded climb. A detected lift's share is counted or not
+              in the lift panel above, never by editing this number. */}
           <Input
             label={`Climb (${distanceUnit === 'km' ? 'meters' : 'feet'})`}
             type="number"

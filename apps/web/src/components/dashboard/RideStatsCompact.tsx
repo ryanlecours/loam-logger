@@ -15,6 +15,7 @@ interface Ride {
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;
+  countedElevationGainMeters?: number | null;
 }
 
 interface RideStatsCompactProps {

@@ -9,6 +9,8 @@ import { MassAssignBikeModal } from "../components/MassAssignBikeModal";
 import { RIDES } from '../graphql/rides';
 import { BIKES } from '../graphql/bikes';
 import type { Ride } from '../models/Ride';
+import { hasLiftAdjustedClimb } from '../lib/rideLift';
+import OsmCredit from '../components/attribution/OsmCredit';
 
 type Bike = {
   id: string;
@@ -226,6 +228,8 @@ export default function RidesPage() {
               ))}
             </ul>
           )}
+
+          {!loading && !error && rides.some(hasLiftAdjustedClimb) && <OsmCredit className="mt-3" />}
         </section>
 
         <aside className="lg:col-span-1">

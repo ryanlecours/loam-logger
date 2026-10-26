@@ -5,6 +5,7 @@ import { usePreferences } from '../../hooks/usePreferences';
 import EditRideModal from '../EditRideModal';
 import WeatherBadge from '../WeatherBadge';
 import type { RideWeather } from '../../models/Ride';
+import { rideClimbMeters } from '../../lib/rideLift';
 
 interface Ride {
   id: string;
@@ -12,6 +13,7 @@ interface Ride {
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;
+  countedElevationGainMeters?: number | null;
   elevationLossMeters?: number | null;
   averageHr?: number | null;
   rideType: string;
@@ -38,7 +40,7 @@ export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowPro
   const title = ride.trailSystem || ride.location || 'Ride';
   const formattedDate = formatRideDate(ride.startTime);
   const duration = formatDurationCompact(ride.durationSeconds);
-  const climbMeters = ride.elevationGainMeters ?? 0;
+  const climbMeters = rideClimbMeters(ride);
   const climbValue = distanceUnit === 'km' ? climbMeters : climbMeters * 3.28084;
   const climb = isNaN(climbValue) ? '0' : Math.round(climbValue).toLocaleString();
   const climbUnit = distanceUnit === 'km' ? 'm' : 'ft';

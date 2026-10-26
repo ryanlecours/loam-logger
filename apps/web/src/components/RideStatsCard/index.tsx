@@ -25,6 +25,8 @@ import { RIDES } from '../../graphql/rides';
 import { BIKES } from '../../graphql/bikes';
 import { WEATHER_BREAKDOWN } from '../../graphql/weatherBreakdown';
 import type { Ride } from '../../models/Ride';
+import { hasLiftAdjustedClimb } from '../../lib/rideLift';
+import OsmCredit from '../attribution/OsmCredit';
 import type { Timeframe, PresetTimeframe } from './types';
 import { EMPTY_STATS } from './types';
 
@@ -329,6 +331,10 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
                 <WeatherSection stats={selectedStats.weather} />
               </ExpandableSection>
             </div>
+
+            {(externalRides ?? allRides).some(hasLiftAdjustedClimb) && (
+              <OsmCredit className="px-4 pt-3" />
+            )}
           </>
         )}
       </div>

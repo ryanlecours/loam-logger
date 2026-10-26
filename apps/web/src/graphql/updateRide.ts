@@ -8,6 +8,7 @@ export const UPDATE_RIDE = gql`
       durationSeconds
       distanceMeters
       elevationGainMeters
+      countedElevationGainMeters
       elevationLossMeters
       averageHr
       rideType
