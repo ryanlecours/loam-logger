@@ -1,17 +1,22 @@
 import { prisma } from './prisma';
-import { computeAdjustedMetrics, type pointsFromStream } from './lift-detection';
+import type { pointsFromStream } from './lift-detection';
 
 // The rider-facing side of lift detection: which lifts a ride used, and the
 // rider's per-ride choice about whether the lift's climb counts in that
 // ride's elevation gain.
 //
-// Only segments matched to a mapped lift (an OpenStreetMap aerialway, so
-// liftOsmId is set) count here. The detector also keeps segments it found
-// from motion alone, and on real rides those turned out to be mostly steady
-// pedal climbs (2026-10-26: 28 of one rider's 30 flagged rides had no mapped
-// lift, at places with no chairlift). They stay in RideSegment and the Ride
-// lift columns for the admin tools, but the rider never sees them and they
-// never remove climb.
+// Only segments matched to a mapped chairlift or gondola count here: the
+// segment's liftOsmId must name an aerialway in the active geometry snapshot
+// whose kind is CHAIRLIFT or GONDOLA. Everything else stays in RideSegment
+// and the Ride lift columns for the admin tools, but the rider never sees it
+// and it never removes climb:
+//  - Segments found from motion alone. On real rides they were mostly steady
+//    pedal climbs (2026-10-26: 28 of one rider's 30 flagged rides had no
+//    mapped lift, at places with no chairlift).
+//  - Surface lifts (t-bar, j-bar, platter, rope tow, magic carpet). They do
+//    not carry a mountain bike, so a match is a rider climbing beside the
+//    line (the same rider's one remaining false lift was a ski area T-Bar).
+//  - Lifts missing from the active snapshot, whose kind cannot be confirmed.
 //
 // Scope is elevation only. Lift time and distance stay in the ride's numbers,
 // and nothing server-side reads the choice: component hours, the wear model
@@ -46,7 +51,7 @@ export interface RideLiftSegmentResult {
   elevationGainMeters: number;
   distanceMeters: number;
   liftName: string | null;
-  /** Null when the lift is not in the active geometry snapshot. */
+  /** CHAIRLIFT or GONDOLA: the only kinds that count (RIDEABLE_LIFT_KINDS). */
   kind: RideLiftKind | null;
 }
 
@@ -77,17 +82,81 @@ export function countsLiftElevation(choice: boolean | null | undefined): boolean
 }
 
 /**
- * Climb summed over the whole track (every positive altitude step, lifts
- * included), or null when the track cannot say. Written to
- * Ride.trackElevationGainMeters by the lift worker and the backfill script.
- * It is the denominator for the share of a ride's climb a lift did, so it is
- * measured on the raw track like the lift segments' rise, not on the device's
- * smoothed summary. Fewer than two points have no climb to sum, and a
- * malformed altitude series must not store NaN.
+ * How far altitude must move from its last turning point before the move
+ * counts toward the track climb. Summing every raw up-step turns altitude
+ * jitter into climb: a phone recording at Whistler (GPS altitude, no
+ * barometer) summed to about 16,600 ft for a day whose lifts rose 7,468 ft,
+ * which made most of the day look like riding. Devices filter the same way
+ * before reporting a climb. Chosen on production tracks (see
+ * scripts/backfill-track-climb.ts --threshold).
  */
-export function trackClimbMeters(points: ReturnType<typeof pointsFromStream>): number | null {
+export const TRACK_CLIMB_HYSTERESIS_METERS = 5;
+
+/**
+ * Climb with hysteresis: a rise counts once altitude has gone thresholdMeters
+ * above the last low point, and a drop of thresholdMeters resets the low
+ * point. Noise smaller than the threshold adds nothing; a steady climb keeps
+ * all but the last few meters. Non-finite altitudes are skipped.
+ */
+export function hysteresisClimbMeters(
+  elevations: ReadonlyArray<number>,
+  thresholdMeters: number = TRACK_CLIMB_HYSTERESIS_METERS
+): number {
+  let ref: number | null = null;
+  let gain = 0;
+  for (const ele of elevations) {
+    if (!Number.isFinite(ele)) continue;
+    if (ref == null) {
+      ref = ele;
+    } else if (ele - ref >= thresholdMeters) {
+      gain += ele - ref;
+      ref = ele;
+    } else if (ref - ele >= thresholdMeters) {
+      ref = ele;
+    }
+  }
+  return gain;
+}
+
+/**
+ * Climb over the whole track, lifts included, or null when the track cannot
+ * say. Written to Ride.trackElevationGainMeters by the lift worker and the
+ * backfill script, and used as the denominator for the share of a ride's
+ * climb a lift did.
+ *
+ * Inside a lift segment the climb is the segment's net rise (last altitude
+ * minus first), the same figure the segment stores. Between segments it is
+ * the hysteresis-smoothed climb. Smoothing alone is not enough on a phone:
+ * at Whistler the GPS altitude "climbed" 3,580 m during lift rides that rose
+ * 2,276 m, which inflated the denominator and counted lift noise as riding.
+ * Fewer than two points have no climb to sum.
+ */
+export function trackClimbMeters(
+  points: ReturnType<typeof pointsFromStream>,
+  liftSegments: ReadonlyArray<{ startIndex: number; endIndex: number }> = [],
+  thresholdMeters: number = TRACK_CLIMB_HYSTERESIS_METERS
+): number | null {
   if (!points || points.length < 2) return null;
-  const gain = computeAdjustedMetrics(points, []).elevationGainMeters;
+  const spans = [...liftSegments]
+    .filter((s) => s.startIndex >= 0 && s.endIndex < points.length && s.startIndex <= s.endIndex)
+    .sort((a, b) => a.startIndex - b.startIndex);
+  let gain = 0;
+  const climb = (lo: number, hi: number) =>
+    hysteresisClimbMeters(points.slice(lo, hi + 1).map((p) => p.ele), thresholdMeters);
+  // `last` is the index the previous span ended on; riding resumes there, so
+  // the steps into and out of a lift are counted as riding.
+  let last = 0;
+  for (const span of spans) {
+    // Overlapping spans should not occur; start at the previous end rather
+    // than count the overlap twice.
+    if (span.endIndex <= last && last > 0) continue;
+    const start = Math.max(span.startIndex, last);
+    gain += climb(last, start);
+    const rise = points[span.endIndex].ele - points[start].ele;
+    if (Number.isFinite(rise) && rise > 0) gain += rise;
+    last = span.endIndex;
+  }
+  gain += climb(last, points.length - 1);
   return Number.isFinite(gain) ? gain : null;
 }
 
@@ -165,14 +234,21 @@ export async function batchLiftFieldsByRideId(
   return rideIds.map((id) => byId.get(id) ?? null);
 }
 
-/** The segments that count as a lift: matched to a mapped one. */
+/**
+ * Segments matched to a mapped lift of any kind: the database-side prefilter.
+ * Which of them count is decided by kind, in batchLiftSegmentsByRideId.
+ */
 export const MAPPED_LIFT_SEGMENT_WHERE = { kind: 'LIFT', liftOsmId: { not: null } } as const;
 
+/** The lift kinds that carry a rider and a bike up a hill. */
+export const RIDEABLE_LIFT_KINDS: ReadonlySet<RideLiftKind> = new Set<RideLiftKind>(['CHAIRLIFT', 'GONDOLA']);
+
 /**
- * Batch loader: each ride's mapped lift segments in ride order, with the
- * lift's kind looked up in the active geometry snapshot by OSM id. A lift
- * matched against an older snapshot and missing from the active one keeps its
- * name but gets a null kind, and the UI falls back to the generic word "lift".
+ * Batch loader: each ride's lift segments that count (see the header: a
+ * mapped chairlift or gondola), in ride order, with the lift's kind looked up
+ * in the active geometry snapshot by OSM id. Ride.lift, the counted climb and
+ * the setRideLiftElevation guard all read this, so they agree on what a lift
+ * is.
  */
 export async function batchLiftSegmentsByRideId(
   rideIds: readonly string[]
@@ -204,6 +280,8 @@ export async function batchLiftSegmentsByRideId(
 
   const byRide = new Map<string, RideLiftSegmentResult[]>();
   for (const s of segments) {
+    const kind = s.liftOsmId ? liftKindFromAerialway(kindByOsmId.get(s.liftOsmId)) : null;
+    if (!kind || !RIDEABLE_LIFT_KINDS.has(kind)) continue;
     const list = byRide.get(s.rideId) ?? [];
     list.push({
       startTime: s.startTime,
@@ -212,7 +290,7 @@ export async function batchLiftSegmentsByRideId(
       elevationGainMeters: s.elevationGainMeters,
       distanceMeters: s.distanceMeters,
       liftName: s.liftName,
-      kind: s.liftOsmId ? liftKindFromAerialway(kindByOsmId.get(s.liftOsmId)) : null,
+      kind,
     });
     byRide.set(s.rideId, list);
   }
@@ -220,8 +298,8 @@ export async function batchLiftSegmentsByRideId(
 }
 
 /**
- * The Ride.lift payload, or null when no mapped lift was found on the ride.
- * The climb is summed over the mapped segments only, so it is exactly what
+ * The Ride.lift payload, or null when no lift that counts was found on the
+ * ride. The climb is summed over those segments only, so it is exactly what
  * countedElevationGainMeters takes out.
  */
 export function buildRideLift(

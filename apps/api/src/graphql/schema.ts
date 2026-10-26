@@ -204,11 +204,11 @@ export const typeDefs = gql`
     updatedAt: String!
     weather: RideWeather
     """
-    Elevation gain after the rider's lift choice. When a mapped lift (see lift)
-    climbed for the rider and the climb is not counted, the lift's share of the
+    Elevation gain after the rider's lift choice. When a chairlift or gondola
+    (see lift) climbed for the rider and the climb is not counted, the lift's share of the
     track's climb is taken out of elevationGainMeters proportionally, so it
     reaches 0 only if every foot was on a lift. Equals elevationGainMeters when
-    no mapped lift was found or the rider counts it. Show this as the ride's
+    no such lift was found or the rider counts it. Show this as the ride's
     climb; elevationGainMeters stays the editable recorded value. Wherever a
     lift-adjusted figure appears, credit "© OpenStreetMap contributors"
     (https://www.openstreetmap.org/copyright).
@@ -216,16 +216,18 @@ export const typeDefs = gql`
     countedElevationGainMeters: Float!
     """
     Lifts detected on this ride, and the rider's choice about their climb.
-    Only segments matched to a mapped lift (an OpenStreetMap aerialway) are
-    included; motion-only detections are left out. Null when there are none
+    Only segments matched to a mapped chairlift or gondola (an OpenStreetMap
+    aerialway) are included; motion-only detections and surface lifts (t-bars,
+    rope tows, magic carpets) are left out. Null when there are none
     (including rides never analyzed).
     """
     lift: RideLift
   }
 
   # OSM aerialway families as riders name them. CHAIRLIFT covers chair_lift
-  # and mixed_lift, GONDOLA covers gondola and cable_car, OTHER is any surface
-  # lift (t-bar, rope tow, magic carpet, ...).
+  # and mixed_lift, GONDOLA covers gondola and cable_car. OTHER (surface lifts)
+  # is no longer returned, since those do not count as lifts; it stays in the
+  # enum for clients built against it.
   enum RideLiftKind {
     CHAIRLIFT
     GONDOLA
@@ -1424,7 +1426,7 @@ export const typeDefs = gql`
     # (true counts it, false removes it, null clears the answer back to the
     # default). Elevation only: lift time and distance are not affected. Fails
     # with NOT_FOUND for another rider's ride and BAD_USER_INPUT when no mapped
-    # lift was found on the ride.
+    # chairlift or gondola was found on the ride.
     setRideLiftElevation(rideId: ID!, count: Boolean): Ride!
     bulkUpdateComponentBaselines(input: BulkUpdateBaselinesInput!): [Component!]!
     acceptTerms(input: AcceptTermsInput!): AcceptTermsResult!
