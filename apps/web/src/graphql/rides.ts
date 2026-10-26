@@ -1,4 +1,5 @@
 import { gql } from '@apollo/client';
+import { LIFT_FIELDS } from './rideLift';
 
 // Weather is included in the rides list because RideStatsCard's weather
 // breakdown needs it for every ride in the selected timeframe. The edit
@@ -33,6 +34,10 @@ export const RIDES = gql`
       distanceMeters
       elevationGainMeters
       countedElevationGainMeters
+      # Null for most rides. Carried here for the "Chairlift detected" row tag.
+      lift {
+        ...LiftFields
+      }
       elevationLossMeters
       averageHr
       rideType
@@ -46,4 +51,5 @@ export const RIDES = gql`
     }
   }
   ${RIDE_WEATHER_FIELDS}
+  ${LIFT_FIELDS}
 `;

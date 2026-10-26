@@ -3,8 +3,11 @@ import {
   hasLiftAdjustedClimb,
   liftLapCount,
   liftNames,
+  filterRidesByLift,
+  LIFT_FILTER_OPTIONS,
   liftTagLabel,
   rideClimbMeters,
+  showsLiftData,
 } from './rideLift';
 
 describe('rideLift', () => {
@@ -25,6 +28,51 @@ describe('rideLift', () => {
       expect(hasLiftAdjustedClimb({ elevationGainMeters: 2000, countedElevationGainMeters: 500 })).toBe(true);
       expect(hasLiftAdjustedClimb({ elevationGainMeters: 2000, countedElevationGainMeters: 2000 })).toBe(false);
       expect(hasLiftAdjustedClimb({ elevationGainMeters: 2000 })).toBe(false);
+    });
+  });
+
+  describe('showsLiftData', () => {
+    const lift = { elevationGainMeters: 400, countElevation: true, segments: [{ kind: 'CHAIRLIFT' as const }] };
+
+    it('is true for a ride with a lift tag, even when its climb counts', () => {
+      expect(showsLiftData({ elevationGainMeters: 2000, countedElevationGainMeters: 2000, lift })).toBe(true);
+    });
+
+    it('is true for a lift-adjusted climb', () => {
+      expect(showsLiftData({ elevationGainMeters: 2000, countedElevationGainMeters: 500 })).toBe(true);
+    });
+
+    it('is false for a ride with no lift', () => {
+      expect(showsLiftData({ elevationGainMeters: 2000, countedElevationGainMeters: 2000, lift: null })).toBe(false);
+      expect(showsLiftData({ elevationGainMeters: 2000 })).toBe(false);
+    });
+  });
+
+  describe('filterRidesByLift', () => {
+    const lift = { elevationGainMeters: 400, countElevation: false, segments: [{ kind: 'CHAIRLIFT' as const }] };
+    const rides = [
+      { id: 'a', lift },
+      { id: 'b', lift: null },
+      { id: 'c' },
+      { id: 'd', lift },
+    ];
+
+    it('keeps every ride for "all", as a new array', () => {
+      const out = filterRidesByLift(rides, 'all');
+      expect(out.map((r) => r.id)).toEqual(['a', 'b', 'c', 'd']);
+      expect(out).not.toBe(rides);
+    });
+
+    it('keeps rides with a lift, in order', () => {
+      expect(filterRidesByLift(rides, 'lift').map((r) => r.id)).toEqual(['a', 'd']);
+    });
+
+    it('keeps rides without one, including rides the cache holds without the field', () => {
+      expect(filterRidesByLift(rides, 'noLift').map((r) => r.id)).toEqual(['b', 'c']);
+    });
+
+    it('offers all three choices, "All rides" first', () => {
+      expect(LIFT_FILTER_OPTIONS.map((o) => o.value)).toEqual(['all', 'lift', 'noLift']);
     });
   });
 

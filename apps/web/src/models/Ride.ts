@@ -18,6 +18,8 @@ export interface RideWeather {
   condition: WeatherCondition;
 }
 
+import type { RideLiftSummary } from '../lib/rideLift';
+
 export interface Ride {
   id: string;
   startTime: string;
@@ -26,6 +28,8 @@ export interface Ride {
   elevationGainMeters: number;
   /** Climb after the rider's lift choice; show and total this one. */
   countedElevationGainMeters?: number | null;
+  /** Mapped lifts on this ride; null when none. */
+  lift?: RideLiftSummary | null;
   elevationLossMeters?: number | null;
   averageHr?: number | null;
   rideType: string;

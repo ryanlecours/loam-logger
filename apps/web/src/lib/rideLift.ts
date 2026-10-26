@@ -6,6 +6,14 @@ export const OSM_COPYRIGHT_URL = 'https://www.openstreetmap.org/copyright';
 
 export type RideLiftKind = 'CHAIRLIFT' | 'GONDOLA' | 'OTHER';
 
+/** The lift summary the rides list and the ride panel read (graphql LiftFields). */
+export type RideLiftSummary = {
+  elevationGainMeters: number;
+  countElevation: boolean;
+  countElevationChoice?: boolean | null;
+  segments: ReadonlyArray<{ startTime?: string; liftName?: string | null; kind?: RideLiftKind | null }>;
+};
+
 type ClimbFields = {
   elevationGainMeters: number;
   countedElevationGainMeters?: number | null;
@@ -33,6 +41,15 @@ export function hasLiftAdjustedClimb(ride: ClimbFields): boolean {
 }
 
 /**
+ * Whether a ride shows anything derived from the OpenStreetMap lift data: a
+ * lift tag, or a climb with a lift's share left out. A list showing any such
+ * ride carries the OSM credit.
+ */
+export function showsLiftData(ride: ClimbFields & { lift?: RideLiftSummary | null }): boolean {
+  return Boolean(ride.lift) || hasLiftAdjustedClimb(ride);
+}
+
+/**
  * "Chairlift detected" or "Gondola detected" when every lift that was matched
  * to a mapped line is that kind, otherwise the generic "Lift detected".
  * Segments found from motion alone (null kind) do not change the word.
@@ -44,6 +61,29 @@ export function liftTagLabel(kinds: ReadonlyArray<RideLiftKind | null | undefine
     if (known.has('GONDOLA')) return 'Gondola detected';
   }
   return 'Lift detected';
+}
+
+/** The Rides page's optional lift filter. */
+export type LiftFilter = 'all' | 'lift' | 'noLift';
+
+export const LIFT_FILTER_OPTIONS: ReadonlyArray<{ value: LiftFilter; label: string }> = [
+  { value: 'all', label: 'All rides' },
+  { value: 'lift', label: 'Chairlift or gondola' },
+  { value: 'noLift', label: 'No lift' },
+];
+
+/**
+ * Rides kept by the lift filter. `lift` is null unless the ride was matched
+ * to a mapped chairlift or gondola, the same rule that shows the row tag, so
+ * the filter and the tag always agree.
+ */
+export function filterRidesByLift<T extends { lift?: RideLiftSummary | null }>(
+  rides: ReadonlyArray<T>,
+  filter: LiftFilter
+): T[] {
+  if (filter === 'lift') return rides.filter((r) => r.lift != null);
+  if (filter === 'noLift') return rides.filter((r) => r.lift == null);
+  return [...rides];
 }
 
 /** "3 laps", one per trip up, the way riders count a lift day. */

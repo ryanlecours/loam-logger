@@ -3,7 +3,7 @@ import { Route } from 'lucide-react';
 import { CompactRideRow } from './CompactRideRow';
 import { getBikeName } from '../../utils/formatters';
 import type { RideWeather } from '../../models/Ride';
-import { hasLiftAdjustedClimb } from '../../lib/rideLift';
+import { showsLiftData, type RideLiftSummary } from '../../lib/rideLift';
 import OsmCredit from '../attribution/OsmCredit';
 
 interface Ride {
@@ -13,6 +13,7 @@ interface Ride {
   distanceMeters: number;
   elevationGainMeters: number;
   countedElevationGainMeters?: number | null;
+  lift?: RideLiftSummary | null;
   averageHr?: number | null;
   rideType: string;
   trailSystem?: string | null;
@@ -104,7 +105,7 @@ export function RecentRidesCard({ rides, bikes = [], loading = false, onLinkBike
           );
         })}
       </div>
-      {rides.some(hasLiftAdjustedClimb) && <OsmCredit className="px-5 py-2" />}
+      {rides.some(showsLiftData) && <OsmCredit className="px-5 py-2" />}
     </section>
   );
 }

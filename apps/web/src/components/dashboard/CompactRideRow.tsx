@@ -5,7 +5,8 @@ import { usePreferences } from '../../hooks/usePreferences';
 import EditRideModal from '../EditRideModal';
 import WeatherBadge from '../WeatherBadge';
 import type { RideWeather } from '../../models/Ride';
-import { rideClimbMeters } from '../../lib/rideLift';
+import { rideClimbMeters, type RideLiftSummary } from '../../lib/rideLift';
+import LiftTag from '../LiftTag';
 
 interface Ride {
   id: string;
@@ -14,6 +15,7 @@ interface Ride {
   distanceMeters: number;
   elevationGainMeters: number;
   countedElevationGainMeters?: number | null;
+  lift?: RideLiftSummary | null;
   elevationLossMeters?: number | null;
   averageHr?: number | null;
   rideType: string;
@@ -80,6 +82,12 @@ export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowPro
               </>
             )}
           </div>
+          {/* Own line: inline, the pill squeezed the date and stats into wrapping. */}
+          {ride.lift && (
+            <div className="compact-ride-lift">
+              <LiftTag lift={ride.lift} />
+            </div>
+          )}
           {bikeName ? (
             <div className="compact-ride-bike">
               {bikeName}

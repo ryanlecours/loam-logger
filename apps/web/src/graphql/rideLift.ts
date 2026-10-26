@@ -1,23 +1,33 @@
 import { gql } from '@apollo/client';
 
-// Lifts detected on one ride and the rider's choice about their climb. Read
-// lazily when a ride is opened; the rides list only carries the counted climb.
+// The lift summary, shared by the rides list (for the row tag) and the ride
+// panel. Both select the same fields: RideLift has no id, so the cache stores
+// it inside its Ride, and two queries selecting different subsets would each
+// overwrite the other's copy.
+export const LIFT_FIELDS = gql`
+  fragment LiftFields on RideLift {
+    elevationGainMeters
+    countElevation
+    countElevationChoice
+    segments {
+      startTime
+      liftName
+      kind
+    }
+  }
+`;
+
+// Lifts detected on one ride and the rider's choice about their climb.
 const RIDE_LIFT_FIELDS = gql`
   fragment RideLiftFields on Ride {
     id
     elevationGainMeters
     countedElevationGainMeters
     lift {
-      elevationGainMeters
-      countElevation
-      countElevationChoice
-      segments {
-        startTime
-        liftName
-        kind
-      }
+      ...LiftFields
     }
   }
+  ${LIFT_FIELDS}
 `;
 
 export const RIDE_LIFT = gql`
