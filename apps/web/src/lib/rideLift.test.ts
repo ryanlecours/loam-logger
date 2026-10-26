@@ -5,6 +5,7 @@ import {
   liftNames,
   liftTagLabel,
   rideClimbMeters,
+  showsLiftData,
 } from './rideLift';
 
 describe('rideLift', () => {
@@ -25,6 +26,23 @@ describe('rideLift', () => {
       expect(hasLiftAdjustedClimb({ elevationGainMeters: 2000, countedElevationGainMeters: 500 })).toBe(true);
       expect(hasLiftAdjustedClimb({ elevationGainMeters: 2000, countedElevationGainMeters: 2000 })).toBe(false);
       expect(hasLiftAdjustedClimb({ elevationGainMeters: 2000 })).toBe(false);
+    });
+  });
+
+  describe('showsLiftData', () => {
+    const lift = { elevationGainMeters: 400, countElevation: true, segments: [{ kind: 'CHAIRLIFT' as const }] };
+
+    it('is true for a ride with a lift tag, even when its climb counts', () => {
+      expect(showsLiftData({ elevationGainMeters: 2000, countedElevationGainMeters: 2000, lift })).toBe(true);
+    });
+
+    it('is true for a lift-adjusted climb', () => {
+      expect(showsLiftData({ elevationGainMeters: 2000, countedElevationGainMeters: 500 })).toBe(true);
+    });
+
+    it('is false for a ride with no lift', () => {
+      expect(showsLiftData({ elevationGainMeters: 2000, countedElevationGainMeters: 2000, lift: null })).toBe(false);
+      expect(showsLiftData({ elevationGainMeters: 2000 })).toBe(false);
     });
   });
 

@@ -6,6 +6,14 @@ export const OSM_COPYRIGHT_URL = 'https://www.openstreetmap.org/copyright';
 
 export type RideLiftKind = 'CHAIRLIFT' | 'GONDOLA' | 'OTHER';
 
+/** The lift summary the rides list and the ride panel read (graphql LiftFields). */
+export type RideLiftSummary = {
+  elevationGainMeters: number;
+  countElevation: boolean;
+  countElevationChoice?: boolean | null;
+  segments: ReadonlyArray<{ startTime?: string; liftName?: string | null; kind?: RideLiftKind | null }>;
+};
+
 type ClimbFields = {
   elevationGainMeters: number;
   countedElevationGainMeters?: number | null;
@@ -30,6 +38,15 @@ export function hasLiftAdjustedClimb(ride: ClimbFields): boolean {
     ride.countedElevationGainMeters != null &&
     ride.countedElevationGainMeters < (ride.elevationGainMeters ?? 0)
   );
+}
+
+/**
+ * Whether a ride shows anything derived from the OpenStreetMap lift data: a
+ * lift tag, or a climb with a lift's share left out. A list showing any such
+ * ride carries the OSM credit.
+ */
+export function showsLiftData(ride: ClimbFields & { lift?: RideLiftSummary | null }): boolean {
+  return Boolean(ride.lift) || hasLiftAdjustedClimb(ride);
 }
 
 /**
