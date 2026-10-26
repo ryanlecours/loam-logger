@@ -23,6 +23,7 @@ export type RideLiftKind = 'CHAIRLIFT' | 'GONDOLA' | 'OTHER';
 /** The Ride columns the lift choice reads. */
 export interface LiftElevationFields {
   elevationGainMeters: number;
+  liftDurationSeconds: number | null;
   liftElevationGainMeters: number | null;
   countLiftElevation: boolean | null;
 }
@@ -45,6 +46,22 @@ export interface RideLiftResult {
   countElevationChoice: boolean | null;
 }
 
+/**
+ * Whether the detector stored lift segments for this ride, read from the Ride
+ * columns so no segment query is needed. The lift worker writes the segments
+ * and the lift columns in one transaction, and liftDurationSeconds is the sum
+ * of the segments' durations: it is above zero exactly when segments exist
+ * (a lift ride lasts minutes, so a real segment never rounds to 0 s). NULL
+ * means never analyzed, which also has no segments.
+ *
+ * This is the one "has a lift" test. The climb is a separate question: a
+ * downhill or flat lift has segments and a lift climb of 0, so the rider can
+ * still see it and save a choice, which then changes no number.
+ */
+export function hasDetectedLift(ride: Pick<LiftElevationFields, 'liftDurationSeconds'>): boolean {
+  return ride.liftDurationSeconds != null && ride.liftDurationSeconds > 0;
+}
+
 /** The effective answer for a stored choice, applying the default to NULL. */
 export function countsLiftElevation(choice: boolean | null | undefined): boolean {
   return choice ?? LIFT_ELEVATION_COUNTED_BY_DEFAULT;
@@ -54,7 +71,9 @@ export function countsLiftElevation(choice: boolean | null | undefined): boolean
  * The ride's elevation gain after the rider's lift choice. Equals the stored
  * elevationGainMeters unless a lift climbed for the rider and that climb is
  * not counted. Floored at zero: a rider who lowered the ride's climb by hand
- * below the lift's share should see 0, never a negative climb.
+ * below the lift's share should see 0, never a negative climb. Keys off the
+ * lift climb rather than hasDetectedLift: with no climb to remove, the
+ * recorded figure stands whatever the choice says.
  */
 export function countedElevationGainMeters(ride: LiftElevationFields): number {
   const lift = ride.liftElevationGainMeters;
@@ -94,6 +113,7 @@ export async function batchLiftFieldsByRideId(
     select: {
       id: true,
       elevationGainMeters: true,
+      liftDurationSeconds: true,
       liftElevationGainMeters: true,
       countLiftElevation: true,
     },
