@@ -41,7 +41,11 @@ export function usePageMeta({ title, description, canonical }: PageMeta): void {
     }
 
     let canonicalEl: HTMLLinkElement | null = null;
-    if (canonical) {
+    // A prerendered page served from its own file (app/index.html) already
+    // carries this exact canonical in its static head; adding a second copy
+    // would hand crawlers two identical tags. The static one is left alone
+    // and, being this page's own, nothing needs to remove it.
+    if (canonical && !head.querySelector(`link[rel="canonical"][href="${canonical}"]`)) {
       canonicalEl = document.createElement('link');
       canonicalEl.setAttribute('rel', 'canonical');
       canonicalEl.setAttribute('href', canonical);

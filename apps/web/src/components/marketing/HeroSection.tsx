@@ -42,7 +42,7 @@ export default function HeroSection() {
             </a>
           </div>
           <p className="lp-fine">
-            Free for one bike, with no card and no trial clock. Web and iOS.
+            Free for one bike, with no card and no trial clock. Web, iOS and Android.
           </p>
         </div>
       </div>

@@ -76,4 +76,21 @@ describe('MarketingLanding', () => {
     expect(screen.queryByText(/testimonial/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/riders trust/i)).not.toBeInTheDocument();
   });
+
+  it('offers both the App Store and Google Play, and names Android in the copy', () => {
+    const { container } = render(<MarketingLanding />);
+    expect(screen.getAllByAltText('Download on the App Store').length).toBeGreaterThan(0);
+    expect(screen.getAllByAltText('Get it on Google Play').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Web, iOS and Android\./)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /Get the app|iOS and Android apps/ }).length).toBeGreaterThan(0);
+
+    const scripts = Array.from(container.querySelectorAll('script[type="application/ld+json"]'));
+    const graph = scripts.map((s) => JSON.parse(s.textContent ?? '{}')).find((d) => Array.isArray(d['@graph']));
+    const app = graph['@graph'].find((n: { '@type': string }) => n['@type'] === 'SoftwareApplication');
+    expect(app.operatingSystem).toBe('Web, iOS, Android');
+    expect(app.sameAs).toEqual([
+      'https://apps.apple.com/us/app/loam-logger/id6761736134',
+      'https://play.google.com/store/apps/details?id=com.loamlabs.loamlogger',
+    ]);
+  });
 });
