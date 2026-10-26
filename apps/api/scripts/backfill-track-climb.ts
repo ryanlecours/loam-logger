@@ -75,11 +75,15 @@ async function main() {
 
   while (!args.limit || processed < args.limit) {
     const take = args.limit ? Math.min(PAGE_SIZE, args.limit - processed) : PAGE_SIZE;
+    // Keyset paging on id, not Prisma's cursor + skip: a ride written above
+    // drops out of `where` (its column is no longer NULL), and a cursor on a
+    // row that no longer matches made skip: 1 pass over the next valid ride,
+    // one per page. The first production run (2026-10-26) missed 3 of 81 that
+    // way.
     const rides = await prisma.ride.findMany({
-      where,
+      where: cursor ? { AND: [where, { id: { gt: cursor } }] } : where,
       orderBy: { id: 'asc' },
       take,
-      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
       select: {
         id: true,
         startTime: true,

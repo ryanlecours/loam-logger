@@ -10,6 +10,7 @@ import { prisma } from './prisma';
 import {
   LIFT_ELEVATION_COUNTED_BY_DEFAULT,
   MAPPED_LIFT_SEGMENT_WHERE,
+  RIDEABLE_LIFT_KINDS,
   batchLiftFieldsByRideId,
   batchLiftSegmentsByRideId,
   buildRideLift,
@@ -218,32 +219,61 @@ describe('ride-lift', () => {
       expect(mockPrisma.liftGeometryLine.findMany).not.toHaveBeenCalled();
     });
 
-    it('groups segments by ride and reads kinds from the active snapshot only', async () => {
+    it('groups segments by ride and reads kinds from the active snapshot', async () => {
       mockPrisma.rideSegment.findMany.mockResolvedValue([
         seg('r1', '111', 'Garbanzo Express'),
         seg('r2', '222', 'Village Gondola'),
-        seg('r2', '333', 'Old Chair'),
+        seg('r2', '444', 'Peak Chair'),
       ]);
       mockPrisma.liftGeometryLine.findMany.mockResolvedValue([
         { osmId: '111', kind: 'chair_lift' },
-        { osmId: '222', kind: 'gondola' },
+        { osmId: '222', kind: 'cable_car' },
+        { osmId: '444', kind: 'mixed_lift' },
       ]);
 
       const [r1, r2, r3] = await batchLiftSegmentsByRideId(['r1', 'r2', 'r3']);
 
       expect(mockPrisma.liftGeometryLine.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { osmId: { in: ['111', '222', '333'] }, import: { status: 'ACTIVE' } },
+          where: { osmId: { in: ['111', '222', '444'] }, import: { status: 'ACTIVE' } },
         })
       );
       expect(r1.map((s) => [s.liftName, s.kind])).toEqual([['Garbanzo Express', 'CHAIRLIFT']]);
-      // 333 is not in the active snapshot: it keeps its name, with no kind.
       expect(r2.map((s) => [s.liftName, s.kind])).toEqual([
         ['Village Gondola', 'GONDOLA'],
-        ['Old Chair', null],
+        ['Peak Chair', 'CHAIRLIFT'],
       ]);
       expect(r3).toEqual([]);
       expect(r1[0]).not.toHaveProperty('liftOsmId');
+    });
+
+    it('drops surface lifts: a T-Bar does not carry a bike', async () => {
+      // The Franklin, NH case: the one mapped "lift" left was a ski area T-Bar.
+      mockPrisma.rideSegment.findMany.mockResolvedValue([
+        seg('r1', '501', 'T-Bar'),
+        seg('r1', '502', 'Bunny Tow'),
+        seg('r1', '503', 'Carpet'),
+      ]);
+      mockPrisma.liftGeometryLine.findMany.mockResolvedValue([
+        { osmId: '501', kind: 't-bar' },
+        { osmId: '502', kind: 'rope_tow' },
+        { osmId: '503', kind: 'magic_carpet' },
+      ]);
+
+      const [r1] = await batchLiftSegmentsByRideId(['r1']);
+      expect(r1).toEqual([]);
+      expect([...RIDEABLE_LIFT_KINDS].sort()).toEqual(['CHAIRLIFT', 'GONDOLA']);
+    });
+
+    it('drops a lift missing from the active snapshot, whose kind cannot be confirmed', async () => {
+      mockPrisma.rideSegment.findMany.mockResolvedValue([
+        seg('r1', '111', 'Garbanzo Express'),
+        seg('r1', '333', 'Old Chair'),
+      ]);
+      mockPrisma.liftGeometryLine.findMany.mockResolvedValue([{ osmId: '111', kind: 'chair_lift' }]);
+
+      const [r1] = await batchLiftSegmentsByRideId(['r1']);
+      expect(r1.map((s) => s.liftName)).toEqual(['Garbanzo Express']);
     });
   });
 });

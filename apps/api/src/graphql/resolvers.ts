@@ -21,7 +21,6 @@ import {
   countedElevationGainMeters,
   hasDetectedLift,
   liftRiseMeters,
-  MAPPED_LIFT_SEGMENT_WHERE,
   type LiftElevationFields,
 } from '../lib/ride-lift';
 import { invalidateBikePrediction, getCachedAdvisorSummary, setCachedAdvisorSummary } from '../services/prediction/cache';
@@ -4716,13 +4715,14 @@ export const resolvers = {
       if (!ride) {
         throw new GraphQLError('Ride not found', { extensions: { code: 'NOT_FOUND' } });
       }
-      // A choice only means something on a ride with a mapped lift, the only
-      // kind the rider is shown (see lib/ride-lift.ts). The column check is
-      // free and rules out most rides before the segment count.
-      const hasMappedLift =
-        hasDetectedLift(ride) &&
-        (await prisma.rideSegment.count({ where: { rideId: ride.id, ...MAPPED_LIFT_SEGMENT_WHERE } })) > 0;
-      if (!hasMappedLift) {
+      // A choice only means something on a ride with a lift that counts (a
+      // mapped chairlift or gondola, see lib/ride-lift.ts), the only kind the
+      // rider is shown. The same loader as Ride.lift decides, so the two can
+      // never disagree. The column check is free and rules out most rides
+      // before the segment query.
+      const hasCountedLift =
+        hasDetectedLift(ride) && (await ctx.loaders.liftSegmentsByRideId.load(ride.id)).length > 0;
+      if (!hasCountedLift) {
         throw new GraphQLError('No lift was detected on this ride', {
           extensions: { code: 'BAD_USER_INPUT' },
         });

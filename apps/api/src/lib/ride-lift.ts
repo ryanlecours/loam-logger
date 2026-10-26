@@ -5,13 +5,18 @@ import { computeAdjustedMetrics, type pointsFromStream } from './lift-detection'
 // rider's per-ride choice about whether the lift's climb counts in that
 // ride's elevation gain.
 //
-// Only segments matched to a mapped lift (an OpenStreetMap aerialway, so
-// liftOsmId is set) count here. The detector also keeps segments it found
-// from motion alone, and on real rides those turned out to be mostly steady
-// pedal climbs (2026-10-26: 28 of one rider's 30 flagged rides had no mapped
-// lift, at places with no chairlift). They stay in RideSegment and the Ride
-// lift columns for the admin tools, but the rider never sees them and they
-// never remove climb.
+// Only segments matched to a mapped chairlift or gondola count here: the
+// segment's liftOsmId must name an aerialway in the active geometry snapshot
+// whose kind is CHAIRLIFT or GONDOLA. Everything else stays in RideSegment
+// and the Ride lift columns for the admin tools, but the rider never sees it
+// and it never removes climb:
+//  - Segments found from motion alone. On real rides they were mostly steady
+//    pedal climbs (2026-10-26: 28 of one rider's 30 flagged rides had no
+//    mapped lift, at places with no chairlift).
+//  - Surface lifts (t-bar, j-bar, platter, rope tow, magic carpet). They do
+//    not carry a mountain bike, so a match is a rider climbing beside the
+//    line (the same rider's one remaining false lift was a ski area T-Bar).
+//  - Lifts missing from the active snapshot, whose kind cannot be confirmed.
 //
 // Scope is elevation only. Lift time and distance stay in the ride's numbers,
 // and nothing server-side reads the choice: component hours, the wear model
@@ -46,7 +51,7 @@ export interface RideLiftSegmentResult {
   elevationGainMeters: number;
   distanceMeters: number;
   liftName: string | null;
-  /** Null when the lift is not in the active geometry snapshot. */
+  /** CHAIRLIFT or GONDOLA: the only kinds that count (RIDEABLE_LIFT_KINDS). */
   kind: RideLiftKind | null;
 }
 
@@ -165,14 +170,21 @@ export async function batchLiftFieldsByRideId(
   return rideIds.map((id) => byId.get(id) ?? null);
 }
 
-/** The segments that count as a lift: matched to a mapped one. */
+/**
+ * Segments matched to a mapped lift of any kind: the database-side prefilter.
+ * Which of them count is decided by kind, in batchLiftSegmentsByRideId.
+ */
 export const MAPPED_LIFT_SEGMENT_WHERE = { kind: 'LIFT', liftOsmId: { not: null } } as const;
 
+/** The lift kinds that carry a rider and a bike up a hill. */
+export const RIDEABLE_LIFT_KINDS: ReadonlySet<RideLiftKind> = new Set<RideLiftKind>(['CHAIRLIFT', 'GONDOLA']);
+
 /**
- * Batch loader: each ride's mapped lift segments in ride order, with the
- * lift's kind looked up in the active geometry snapshot by OSM id. A lift
- * matched against an older snapshot and missing from the active one keeps its
- * name but gets a null kind, and the UI falls back to the generic word "lift".
+ * Batch loader: each ride's lift segments that count (see the header: a
+ * mapped chairlift or gondola), in ride order, with the lift's kind looked up
+ * in the active geometry snapshot by OSM id. Ride.lift, the counted climb and
+ * the setRideLiftElevation guard all read this, so they agree on what a lift
+ * is.
  */
 export async function batchLiftSegmentsByRideId(
   rideIds: readonly string[]
@@ -204,6 +216,8 @@ export async function batchLiftSegmentsByRideId(
 
   const byRide = new Map<string, RideLiftSegmentResult[]>();
   for (const s of segments) {
+    const kind = s.liftOsmId ? liftKindFromAerialway(kindByOsmId.get(s.liftOsmId)) : null;
+    if (!kind || !RIDEABLE_LIFT_KINDS.has(kind)) continue;
     const list = byRide.get(s.rideId) ?? [];
     list.push({
       startTime: s.startTime,
@@ -212,7 +226,7 @@ export async function batchLiftSegmentsByRideId(
       elevationGainMeters: s.elevationGainMeters,
       distanceMeters: s.distanceMeters,
       liftName: s.liftName,
-      kind: s.liftOsmId ? liftKindFromAerialway(kindByOsmId.get(s.liftOsmId)) : null,
+      kind,
     });
     byRide.set(s.rideId, list);
   }
@@ -220,8 +234,8 @@ export async function batchLiftSegmentsByRideId(
 }
 
 /**
- * The Ride.lift payload, or null when no mapped lift was found on the ride.
- * The climb is summed over the mapped segments only, so it is exactly what
+ * The Ride.lift payload, or null when no lift that counts was found on the
+ * ride. The climb is summed over those segments only, so it is exactly what
  * countedElevationGainMeters takes out.
  */
 export function buildRideLift(
