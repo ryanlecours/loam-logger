@@ -10,7 +10,8 @@ name: Sync staging with main
 # - the merge conflicts: fail the job and leave staging alone for a person
 #   to resolve.
 # Nothing is ever force-pushed. A conflict also opens (or reuses) an issue,
-# so it does not hide in a failed Actions run.
+# so it does not hide in a failed Actions run, and the next sync that leaves
+# staging containing main closes that issue again.
 #
 # Token: the push uses the STAGING_SYNC_TOKEN secret, a fine-grained PAT for
 # this repo with Contents and Workflows set to read and write. GITHUB_TOKEN
@@ -90,3 +91,20 @@ jobs:
           else
             gh issue create --title "$title" --body "$body"
           fi
+
+      - name: Close the conflict issue once staging contains main
+        # Runs on every successful sync, including the "nothing to do" exit,
+        # so an issue left open after someone merged by hand is closed too.
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="staging needs a manual merge of main"
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -z "$existing" ]; then
+            echo "No open conflict issue."
+            exit 0
+          fi
+          gh issue close "$existing" --comment "staging contains main again ($(git rev-parse --short HEAD)). Closed by the sync run: $RUN_URL"
+          echo "Closed #$existing."
