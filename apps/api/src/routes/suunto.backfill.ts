@@ -18,6 +18,7 @@ import {
 import { recomputeCountersForBike, BULK_RECOMPUTE_TX_OPTIONS } from '../lib/component-counters';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 import { logError, logger } from '../lib/logger';
+import { captureRideSynced } from '../lib/posthog';
 import { acquireLock, releaseLock, extendLock, LOCK_TTL } from '../lib/rate-limit';
 import {
   findPotentialDuplicates,
@@ -360,6 +361,7 @@ r.get<Empty, void, Empty, { year?: string }>(
         });
 
         importedCount++;
+        captureRideSynced(userId, 'suunto', 'backfill');
 
         // Periodically refresh the lock during the upsert loop too.
         // Pre-write extension prevents a stuck-DB scenario from letting the

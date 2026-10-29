@@ -11,7 +11,13 @@ import { revokeIntegration } from '../lib/integration-tokens';
 import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
 import { encrypt } from '../lib/crypto';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
-import { captureProviderConnected } from '../lib/posthog';
+import {
+  captureProviderConnected,
+  captureProviderConnectStarted,
+  captureProviderConnectFailed,
+  captureProviderDisconnected,
+} from '../lib/posthog';
+import { startAutoImport } from '../lib/auto-import';
 
 const log = createLogger('garmin-oauth');
 
@@ -21,7 +27,7 @@ const r: Router = createRouter();
 // ---------------------------------------------------------------------------
 // 1) Web Start — redirect user to Garmin's consent page (existing web flow)
 // ---------------------------------------------------------------------------
-r.get<Empty, void, Empty>('/garmin/start', async (_req: Request, res: Response) => {
+r.get<Empty, void, Empty>('/garmin/start', async (req: Request, res: Response) => {
   const AUTH_URL = process.env.GARMIN_AUTH_URL;
   const CLIENT_ID = process.env.GARMIN_CLIENT_ID;
   const REDIRECT_URI = process.env.GARMIN_REDIRECT_URI;
@@ -58,6 +64,9 @@ r.get<Empty, void, Empty>('/garmin/start', async (_req: Request, res: Response) 
   url.searchParams.set('state', state);
   url.searchParams.set('code_challenge', challenge);
   url.searchParams.set('code_challenge_method', 'S256');
+
+  const startedBy = req.sessionUser?.uid;
+  if (startedBy) captureProviderConnectStarted(startedBy, 'garmin', { isMobileFlow: false });
 
   return res.redirect(url.toString());
 });
@@ -111,6 +120,7 @@ r.post<Empty, unknown, Empty>('/garmin/start', async (req: Request, res: Respons
     url.searchParams.set('code_challenge_method', 'S256');
 
     log.info({ userId, attemptId: attempt.id, provider: 'GARMIN' }, 'Garmin OAuth start (mobile)');
+    captureProviderConnectStarted(userId, 'garmin', { isMobileFlow: true });
     return sendSuccess(res, { authorizeUrl: url.toString() });
   } catch (err) {
     log.error({ err, userId }, 'Failed to create Garmin OAuth attempt');
@@ -134,6 +144,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
 
     // Helper to redirect on error (mobile or web)
     function redirectError(reason: string) {
+      captureProviderConnectFailed(userId, 'garmin', reason, { isMobileFlow });
       if (isMobileFlow) {
         return res.redirect(`/auth/garmin/mobile/complete?status=error&reason=${encodeURIComponent(reason)}`);
       }
@@ -305,6 +316,10 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
 
       captureProviderConnected(authenticatedUserId, 'garmin', { isReconnect, isMobileFlow });
 
+      // Queue the past year of rides now, so connecting puts hours on the
+      // clock instead of waiting for the rider to find the manual Sync.
+      await startAutoImport(authenticatedUserId, 'garmin');
+
       if (isMobileFlow && attemptId) {
         // Attempt already consumed atomically by consumeOAuthAttempt
         log.info({ userId, attemptId }, 'Garmin OAuth callback success (mobile)');
@@ -422,6 +437,7 @@ async function handleGarminDisconnect(userId: string): Promise<boolean> {
   // the product exists to keep. The privacy policy states exactly this split.
   await deleteRideStreamsForProvider(userId, 'garmin');
 
+  captureProviderDisconnected(userId, 'garmin');
   return revoked;
 }
 

@@ -10,8 +10,13 @@
 // tier-access all need the same answer to "what does this period mean", and
 // none of them should have to import the others to get it.
 
-/** Day windows the clients offer, shortest first. */
-export const GARMIN_PERIOD_DAYS = { '7d': 7, '14d': 14, '30d': 30 } as const;
+/**
+ * Day windows, shortest first. The clients offer the first three; '365d' is
+ * the window the API imports on its own when a provider is connected (see
+ * lib/auto-import.ts), sized to put a season of hours on every component
+ * without pulling a rider's whole history.
+ */
+export const GARMIN_PERIOD_DAYS = { '7d': 7, '14d': 14, '30d': 30, '365d': 365 } as const;
 
 export type GarminPeriod = keyof typeof GARMIN_PERIOD_DAYS;
 

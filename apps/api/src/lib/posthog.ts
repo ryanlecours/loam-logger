@@ -222,6 +222,103 @@ export function captureServerEvent(
   })();
 }
 
+export type RideProvider = 'garmin' | 'strava' | 'suunto' | 'whoop';
+
+/**
+ * Capture an event with no person behind it. Used where the OAuth callback
+ * has no user to attach a failure to (an expired state, a cookie that never
+ * arrived). The event still counts, but PostHog is told not to build a
+ * person out of the sentinel id, and the opt-out lookup is skipped because
+ * there is no user to look up.
+ */
+function captureAnonymousServerEvent(event: string, properties: Record<string, unknown> = {}): void {
+  const c = getClient();
+  if (!c) return;
+  try {
+    c.capture({
+      distinctId: 'anonymous',
+      event,
+      properties: { ...scrub(withClientContext(properties)), $process_person_profile: false },
+    });
+  } catch (err) {
+    logger?.warn?.({ err, event }, 'PostHog anonymous capture failed');
+  }
+}
+
+/**
+ * Keep the `connected_providers` person property in step with the database.
+ * Called after a connect or disconnect transaction commits. "Connected" is
+ * what the status routes report: an integration row that is not revoked.
+ *
+ * Fire and forget like captureServerEvent: nothing waits on PostHog.
+ */
+export function syncConnectedProvidersProperty(userId: string): void {
+  const c = getClient();
+  if (!c) return;
+  void (async () => {
+    try {
+      if (await isOptedOut(userId)) return;
+      const rows = await prisma.userIntegration.findMany({
+        where: { userId, revokedAt: null },
+        select: { provider: true },
+      });
+      const providers = rows.map((r) => r.provider.toLowerCase()).sort();
+      c.capture({
+        distinctId: userId,
+        event: '$set',
+        properties: {
+          $set: {
+            connected_providers: providers,
+            connected_provider_count: providers.length,
+          },
+        },
+      });
+    } catch (err) {
+      logger?.warn?.({ err, userId }, 'PostHog connected_providers sync failed');
+    }
+  })();
+}
+
+/**
+ * A rider pressed Connect. Fired by the start routes, so the funnel has a
+ * step before the callback: starts that never produce a `provider_connected`
+ * or `provider_connect_failed` are riders lost on the provider's own pages.
+ */
+export function captureProviderConnectStarted(
+  userId: string,
+  provider: RideProvider,
+  { isMobileFlow }: { isMobileFlow: boolean }
+): void {
+  captureServerEvent(userId, 'provider_connect_started', {
+    provider,
+    client_platform: isMobileFlow ? 'mobile' : 'web',
+  });
+}
+
+/**
+ * The OAuth callback could not finish. `reason` is the same string the
+ * callback sends the client (`invalid_state`, `token_exchange_failed`, ...).
+ * Without a user (an expired mobile attempt, a web request with no cookie)
+ * the event is recorded anonymously rather than dropped.
+ */
+export function captureProviderConnectFailed(
+  userId: string | undefined,
+  provider: RideProvider,
+  reason: string,
+  { isMobileFlow }: { isMobileFlow: boolean }
+): void {
+  const properties = {
+    provider,
+    reason,
+    client_platform: isMobileFlow ? 'mobile' : 'web',
+  };
+  if (userId) {
+    captureServerEvent(userId, 'provider_connect_failed', properties);
+  } else {
+    captureAnonymousServerEvent('provider_connect_failed', properties);
+  }
+}
+
 /**
  * Record a completed provider OAuth connection. Shared by the four OAuth
  * callbacks so the event shape stays the same across providers.
@@ -232,7 +329,7 @@ export function captureServerEvent(
  */
 export function captureProviderConnected(
   userId: string,
-  provider: 'garmin' | 'strava' | 'suunto' | 'whoop',
+  provider: RideProvider,
   { isReconnect, isMobileFlow }: { isReconnect: boolean; isMobileFlow: boolean }
 ): void {
   captureServerEvent(userId, 'provider_connected', {
@@ -240,6 +337,31 @@ export function captureProviderConnected(
     isReconnect,
     client_platform: isMobileFlow ? 'mobile' : 'web',
   });
+  syncConnectedProvidersProperty(userId);
+}
+
+/** The rider removed a provider. Called once the disconnect has committed. */
+export function captureProviderDisconnected(userId: string, provider: RideProvider): void {
+  captureServerEvent(userId, 'provider_disconnected', { provider });
+  syncConnectedProvidersProperty(userId);
+}
+
+/**
+ * A ride arrived from a provider and was stored for the first time. This is
+ * the activation signal: a rider has hours on the clock. `via` says which
+ * path delivered it, since a webhook ride and a backfilled ride mean
+ * different things about how the rider got there.
+ *
+ * Fire this for new rides only. A re-sync that touches an existing ride is
+ * not activation, and the backfill paths would otherwise emit one event per
+ * ride per run.
+ */
+export function captureRideSynced(
+  userId: string,
+  provider: RideProvider,
+  via: 'webhook' | 'sync' | 'backfill'
+): void {
+  captureServerEvent(userId, 'ride_synced', { provider, via });
 }
 
 /**

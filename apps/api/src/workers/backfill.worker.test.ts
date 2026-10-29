@@ -96,6 +96,16 @@ jest.mock('../services/notification.service', () => ({
 // Mock global fetch
 global.fetch = jest.fn();
 
+// The Strava import itself is lib/strava-backfill's unit; the worker only
+// resolves the period and records the outcome. Keep the real error class so
+// the worker's instanceof check sees the same one the test throws.
+const mockImportStravaActivities = jest.fn();
+jest.mock('../lib/strava-backfill', () => ({
+  ...jest.requireActual('../lib/strava-backfill'),
+  importStravaActivities: (...args: unknown[]) => mockImportStravaActivities(...args),
+}));
+import { StravaNotConnectedError } from '../lib/strava-backfill';
+
 import { createBackfillWorker, closeBackfillWorker } from './backfill.worker';
 import { Worker } from 'bullmq';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
@@ -953,6 +963,101 @@ describe('processBackfillJob (via worker processor)', () => {
           status: { not: 'completed' },
         },
         data: { status: 'in_progress', updatedAt: expect.any(Date) },
+      });
+    });
+
+    describe('strava', () => {
+      beforeEach(() => {
+        mockImportStravaActivities.mockReset();
+        mockImportStravaActivities.mockResolvedValue({
+          totalActivities: 5,
+          cyclingActivities: 3,
+          imported: 2,
+          updated: 1,
+          geocoded: 0,
+          unmappedGears: [],
+        });
+      });
+
+      it('imports the rolling window the automatic connect import queues', async () => {
+        const before = Date.now();
+        await processBackfillJob({
+          name: 'backfillYear',
+          id: 'job-123',
+          data: { userId: 'user-123', provider: 'strava', year: '365d' },
+        });
+
+        expect(mockImportStravaActivities).toHaveBeenCalledTimes(1);
+        const call = mockImportStravaActivities.mock.calls[0][0] as {
+          userId: string;
+          startDate: Date;
+          endDate: Date;
+          via: string;
+        };
+        expect(call.userId).toBe('user-123');
+        expect(call.via).toBe('backfill');
+        const spanDays = (call.endDate.getTime() - call.startDate.getTime()) / 86_400_000;
+        expect(spanDays).toBeGreaterThanOrEqual(364);
+        expect(spanDays).toBeLessThanOrEqual(366);
+        expect(call.endDate.getTime()).toBeGreaterThanOrEqual(before);
+      });
+
+      it('records the touched-ride count the rider-driven route records', async () => {
+        await processBackfillJob({
+          name: 'backfillYear',
+          id: 'job-123',
+          data: { userId: 'user-123', provider: 'strava', year: '365d' },
+        });
+
+        expect(mockPrisma.backfillRequest.updateMany).toHaveBeenCalledWith({
+          where: { userId: 'user-123', provider: 'strava', year: '365d' },
+          data: {
+            status: 'completed',
+            ridesFound: 3,
+            completedAt: expect.any(Date),
+            updatedAt: expect.any(Date),
+          },
+        });
+      });
+
+      it('imports a calendar year as the whole year', async () => {
+        await processBackfillJob({
+          name: 'backfillYear',
+          id: 'job-123',
+          data: { userId: 'user-123', provider: 'strava', year: '2024' },
+        });
+
+        const call = mockImportStravaActivities.mock.calls[0][0] as { startDate: Date; endDate: Date };
+        expect(call.startDate).toEqual(new Date(2024, 0, 1));
+        expect(call.endDate).toEqual(new Date(2024, 11, 31, 23, 59, 59));
+      });
+
+      it('fails a disconnected rider without retrying', async () => {
+        mockImportStravaActivities.mockRejectedValue(new StravaNotConnectedError());
+
+        await expect(
+          processBackfillJob({
+            name: 'backfillYear',
+            id: 'job-123',
+            data: { userId: 'user-123', provider: 'strava', year: '365d' },
+          })
+        ).rejects.toMatchObject({ name: 'UnrecoverableError' });
+
+        expect(mockPrisma.backfillRequest.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ status: 'failed' }) })
+        );
+      });
+
+      it('rejects a period it cannot resolve without calling Strava', async () => {
+        await expect(
+          processBackfillJob({
+            name: 'backfillYear',
+            id: 'job-123',
+            data: { userId: 'user-123', provider: 'strava', year: 'next-week' },
+          })
+        ).rejects.toMatchObject({ name: 'UnrecoverableError' });
+
+        expect(mockImportStravaActivities).not.toHaveBeenCalled();
       });
     });
 

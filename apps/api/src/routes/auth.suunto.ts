@@ -10,7 +10,13 @@ import { revokeSuuntoTokenForUser } from '../lib/suunto-token';
 import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
 import { encrypt } from '../lib/crypto';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
-import { captureProviderConnected } from '../lib/posthog';
+import {
+  captureProviderConnected,
+  captureProviderConnectStarted,
+  captureProviderConnectFailed,
+  captureProviderDisconnected,
+} from '../lib/posthog';
+import { startAutoImport } from '../lib/auto-import';
 import type { SuuntoTokenResp } from '../lib/suunto-sync';
 
 const log = createLogger('suunto-oauth');
@@ -48,7 +54,7 @@ function extractSuuntoUsername(accessToken: string): string | null {
 // ---------------------------------------------------------------------------
 // 1) Web Start
 // ---------------------------------------------------------------------------
-r.get<Empty, void, Empty>('/suunto/start', async (_req: Request, res: Response) => {
+r.get<Empty, void, Empty>('/suunto/start', async (req: Request, res: Response) => {
   const CLIENT_ID = process.env.SUUNTO_CLIENT_ID;
   const REDIRECT_URI = process.env.SUUNTO_REDIRECT_URI;
 
@@ -91,6 +97,9 @@ r.get<Empty, void, Empty>('/suunto/start', async (_req: Request, res: Response) 
     redirectUri: REDIRECT_URI,
     statePrefix: state.slice(0, 6),
   }, 'Suunto OAuth start (web): redirecting user to authorize');
+
+  const startedBy = req.sessionUser?.uid;
+  if (startedBy) captureProviderConnectStarted(startedBy, 'suunto', { isMobileFlow: false });
 
   return res.redirect(url.toString());
 });
@@ -148,6 +157,7 @@ r.post<Empty, unknown, Empty>('/suunto/start', async (req: Request, res: Respons
       redirectUri: REDIRECT_URI,
       statePrefix: state.slice(0, 6),
     }, 'Suunto OAuth start (mobile): authorizeUrl issued');
+    captureProviderConnectStarted(userId, 'suunto', { isMobileFlow: true });
     return sendSuccess(res, { authorizeUrl: url.toString() });
   } catch (err) {
     log.error({ err, userId }, 'Failed to create Suunto OAuth attempt');
@@ -168,6 +178,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
     const { code, state } = req.query;
 
     function redirectError(reason: string) {
+      captureProviderConnectFailed(userId, 'suunto', reason, { isMobileFlow });
       // Clear the web-flow state cookie on every failure path so a retry
       // starts clean. Safe to call for the mobile flow too — no cookie was
       // set there, so the clear is a no-op. (State replay is already blocked
@@ -352,6 +363,10 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
 
       captureProviderConnected(authenticatedUserId, 'suunto', { isReconnect, isMobileFlow });
 
+      // Queue the past year of rides now, so connecting puts hours on the
+      // clock instead of waiting for the rider to find the manual Sync.
+      await startAutoImport(authenticatedUserId, 'suunto');
+
       if (isMobileFlow && attemptId) {
         log.info({ userId, attemptId }, 'Suunto OAuth callback success (mobile)');
         return res.redirect(`/auth/suunto/mobile/complete?status=success`);
@@ -490,6 +505,7 @@ async function handleSuuntoDisconnect(userId: string): Promise<boolean> {
     });
   });
 
+  captureProviderDisconnected(userId, 'suunto');
   return revoked;
 }
 

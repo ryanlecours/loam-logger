@@ -10,6 +10,7 @@ import {
 } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { logError } from '../lib/logger';
+import { captureRideSynced } from '../lib/posthog';
 import { fireRideNotifications } from '../services/notification.service';
 import { enqueueWeatherJob, enqueueLiftDetectionJob } from '../lib/queue';
 import { isActiveSource } from '../lib/active-source';
@@ -424,6 +425,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
       // Bust cached predictions for every bike whose hours changed (create or
       // re-sync with a changed bike/duration both land here).
       await invalidateBikePredictionsForBikes(userAccount.userId, affectedBikeIds);
+      if (isNewRide) captureRideSynced(userAccount.userId, 'strava', 'webhook');
 
       console.log(`[Strava Activity Event] Successfully stored ride for activity ${activityId}`);
 

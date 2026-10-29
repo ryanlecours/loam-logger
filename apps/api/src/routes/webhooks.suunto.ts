@@ -2,6 +2,7 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { createHmac, timingSafeEqual } from 'crypto';
 import { prisma } from '../lib/prisma';
 import { createLogger, logError } from '../lib/logger';
+import { captureRideSynced } from '../lib/posthog';
 import { isActiveSource } from '../lib/active-source';
 import { isSuuntoCyclingActivity, getSuuntoRideType, isKnownSuuntoActivity } from '../types/suunto';
 import { syncBikeComponentHours } from '../lib/component-hours';
@@ -248,6 +249,7 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
 
   // Bust cached predictions for every bike whose hours changed.
   await invalidateBikePredictionsForBikes(userAccount.userId, affectedBikeIds);
+  if (isNewRide) captureRideSynced(userAccount.userId, 'suunto', 'webhook');
 
   // Fire-and-forget weather fetch. This webhook is the real-time Suunto
   // ingestion path, so without this call Suunto rides never get weather even

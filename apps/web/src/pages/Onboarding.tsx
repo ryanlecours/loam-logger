@@ -457,6 +457,11 @@ export default function Onboarding() {
   };
 
   const handleSkipDevices = async () => {
+    // The one step a rider can pass without the product working for them
+    // afterwards, so the skip is recorded: the connect funnel needs to
+    // separate "never pressed Connect" from "connected on the provider's
+    // side and came back".
+    posthog.capture('onboarding_connect_skipped', { step: 6 });
     // Skip device connections and complete onboarding
     await handleComplete();
   };

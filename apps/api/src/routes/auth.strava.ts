@@ -9,7 +9,13 @@ import { revokeStravaTokenForUser } from '../lib/strava-token';
 import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
 import { encrypt } from '../lib/crypto';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
-import { captureProviderConnected } from '../lib/posthog';
+import {
+  captureProviderConnected,
+  captureProviderConnectStarted,
+  captureProviderConnectFailed,
+  captureProviderDisconnected,
+} from '../lib/posthog';
+import { startAutoImport } from '../lib/auto-import';
 
 const log = createLogger('strava-oauth');
 
@@ -19,7 +25,7 @@ const r: Router = createRouter();
 // ---------------------------------------------------------------------------
 // 1) Web Start — redirect user to Strava's consent page (existing web flow)
 // ---------------------------------------------------------------------------
-r.get<Empty, void, Empty>('/strava/start', async (_req: Request, res: Response) => {
+r.get<Empty, void, Empty>('/strava/start', async (req: Request, res: Response) => {
   const AUTH_URL = 'https://www.strava.com/oauth/authorize';
   const CLIENT_ID = process.env.STRAVA_CLIENT_ID;
   const REDIRECT_URI = process.env.STRAVA_REDIRECT_URI;
@@ -50,6 +56,9 @@ r.get<Empty, void, Empty>('/strava/start', async (_req: Request, res: Response) 
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('scope', SCOPE);
   url.searchParams.set('state', state);
+
+  const startedBy = req.sessionUser?.uid;
+  if (startedBy) captureProviderConnectStarted(startedBy, 'strava', { isMobileFlow: false });
 
   return res.redirect(url.toString());
 });
@@ -98,6 +107,7 @@ r.post<Empty, unknown, Empty>('/strava/start', async (req: Request, res: Respons
     url.searchParams.set('state', state);
 
     log.info({ userId, attemptId: attempt.id, provider: 'STRAVA' }, 'Strava OAuth start (mobile)');
+    captureProviderConnectStarted(userId, 'strava', { isMobileFlow: true });
     return sendSuccess(res, { authorizeUrl: url.toString() });
   } catch (err) {
     log.error({ err, userId }, 'Failed to create Strava OAuth attempt');
@@ -118,6 +128,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
     const { code, state } = req.query;
 
     function redirectError(reason: string) {
+      captureProviderConnectFailed(userId, 'strava', reason, { isMobileFlow });
       if (isMobileFlow) {
         return res.redirect(`/auth/strava/mobile/complete?status=error&reason=${encodeURIComponent(reason)}`);
       }
@@ -294,6 +305,10 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 
       captureProviderConnected(authenticatedUserId, 'strava', { isReconnect, isMobileFlow });
 
+      // Queue the past year of rides now, so connecting puts hours on the
+      // clock instead of waiting for the rider to find the manual Sync.
+      await startAutoImport(authenticatedUserId, 'strava');
+
       // Check if multiple providers are connected (for data source prompt)
       const userAccounts = await prisma.userAccount.findMany({
         where: { userId },
@@ -464,6 +479,7 @@ async function handleStravaDisconnect(userId: string): Promise<boolean> {
     });
   });
 
+  captureProviderDisconnected(userId, 'strava');
   return revoked;
 }
 

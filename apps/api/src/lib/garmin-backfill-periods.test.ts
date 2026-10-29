@@ -12,6 +12,12 @@ describe('parseGarminPeriodDays', () => {
     expect(parseGarminPeriodDays('30d')).toBe(30);
   });
 
+  it('reads the window the automatic connect import uses', () => {
+    expect(parseGarminPeriodDays('365d')).toBe(365);
+    expect(isRollingGarminPeriod('365d')).toBe(true);
+    expect(describeGarminPeriod('365d')).toBe('the last 365 days');
+  });
+
   it('rejects anything that is not an offered window', () => {
     // Windows are an allow-list, not a pattern: an arbitrary '90d' would sail
     // past Garmin's chunking rules and past the clients' labels.
