@@ -21,7 +21,14 @@ jest.mock('./pcke', () => ({
   sha256: jest.fn(async (input: string) => `hashed_${input}`),
 }));
 
-import { createOAuthAttempt, consumeOAuthAttempt, cleanupExpiredAttempts } from './oauthState';
+import {
+  createOAuthAttempt,
+  consumeOAuthAttempt,
+  cleanupExpiredAttempts,
+  findOAuthAttemptOwner,
+  isMobileOAuthState,
+  MOBILE_STATE_PREFIX,
+} from './oauthState';
 
 describe('oauthState', () => {
   beforeEach(() => {
@@ -39,7 +46,10 @@ describe('oauthState', () => {
         platform: 'MOBILE',
       });
 
-      expect(result.state).toBe('r'.repeat(32));
+      // Mobile states carry the platform prefix so the callback can still
+      // tell the flow apart once the row has expired (loam-logger#267). The
+      // hash covers the token exactly as issued.
+      expect(result.state).toBe(`m.${'r'.repeat(32)}`);
       expect(result.verifier).toBe(''); // no PKCE verifier
       expect(result.attempt).toBe(fakeAttempt);
       expect(mockCreate).toHaveBeenCalledWith({
@@ -47,11 +57,24 @@ describe('oauthState', () => {
           provider: 'GARMIN',
           userId: 'user-1',
           platform: 'MOBILE',
-          stateHash: `hashed_${'r'.repeat(32)}`,
+          stateHash: `hashed_m.${'r'.repeat(32)}`,
           nonce: '',
           expiresAt: expect.any(Date),
         }),
       });
+    });
+
+    it('should issue a bare state for a WEB attempt', async () => {
+      mockCreate.mockResolvedValue({ id: 'attempt-web' });
+
+      const result = await createOAuthAttempt({
+        userId: 'user-1',
+        provider: 'STRAVA',
+        platform: 'WEB',
+      });
+
+      expect(result.state).toBe('r'.repeat(32));
+      expect(isMobileOAuthState(result.state)).toBe(false);
     });
 
     it('should include a PKCE verifier when includeVerifier is true', async () => {
@@ -71,6 +94,54 @@ describe('oauthState', () => {
           nonce: 'r'.repeat(64),
         }),
       });
+    });
+  });
+
+  describe('isMobileOAuthState', () => {
+    it('recognises the prefix a mobile start route issues', () => {
+      expect(MOBILE_STATE_PREFIX).toBe('m.');
+      expect(isMobileOAuthState('m.abc123')).toBe(true);
+    });
+
+    it('never matches the bare hex state a web start route issues', () => {
+      expect(isMobileOAuthState('abc123')).toBe(false);
+      expect(isMobileOAuthState('')).toBe(false);
+      // Hex contains no "m", so a bare state can never match the prefix;
+      // even one that happens to start with "m" lacks the dot.
+      expect(isMobileOAuthState('m' + '0'.repeat(47))).toBe(false);
+    });
+  });
+
+  describe('findOAuthAttemptOwner', () => {
+    it('returns the user of a matching attempt regardless of expiry or use', async () => {
+      mockFindUnique.mockResolvedValue({ userId: 'user-9', provider: 'STRAVA' });
+
+      await expect(
+        findOAuthAttemptOwner({ state: 'm.stale', provider: 'STRAVA' })
+      ).resolves.toBe('user-9');
+
+      expect(mockFindUnique).toHaveBeenCalledWith({
+        where: { stateHash: 'hashed_m.stale' },
+        select: { userId: true, provider: true },
+      });
+      // Attribution only: it never claims the row.
+      expect(mockUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it('returns undefined when the row is gone', async () => {
+      mockFindUnique.mockResolvedValue(null);
+
+      await expect(
+        findOAuthAttemptOwner({ state: 'm.gone', provider: 'STRAVA' })
+      ).resolves.toBeUndefined();
+    });
+
+    it('returns undefined when the row belongs to another provider', async () => {
+      mockFindUnique.mockResolvedValue({ userId: 'user-9', provider: 'GARMIN' });
+
+      await expect(
+        findOAuthAttemptOwner({ state: 'm.other', provider: 'STRAVA' })
+      ).resolves.toBeUndefined();
     });
   });
 

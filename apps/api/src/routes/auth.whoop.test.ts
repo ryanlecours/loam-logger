@@ -21,9 +21,21 @@ jest.mock('../lib/rate-limit', () => ({
 
 const mockCreateOAuthAttempt = jest.fn();
 const mockConsumeOAuthAttempt = jest.fn();
+const mockFindOAuthAttemptOwner = jest.fn();
 jest.mock('../lib/oauthState', () => ({
   createOAuthAttempt: (...args: unknown[]) => mockCreateOAuthAttempt(...args),
   consumeOAuthAttempt: (...args: unknown[]) => mockConsumeOAuthAttempt(...args),
+  findOAuthAttemptOwner: (...args: unknown[]) => mockFindOAuthAttemptOwner(...args),
+  // Real prefix check: the callback's mobile-vs-web decision is what is under test.
+  isMobileOAuthState: jest.requireActual('../lib/oauthState').isMobileOAuthState,
+}));
+
+const mockCaptureProviderConnectFailed = jest.fn();
+jest.mock('../lib/posthog', () => ({
+  captureProviderConnected: jest.fn(),
+  captureProviderConnectStarted: jest.fn(),
+  captureProviderConnectFailed: (...args: unknown[]) => mockCaptureProviderConnectFailed(...args),
+  captureProviderDisconnected: jest.fn(),
 }));
 
 const mockFindUnique = jest.fn();
@@ -374,6 +386,33 @@ describe('auth.whoop routes', () => {
       expect(mockRes.redirect).toHaveBeenCalledWith(
         expect.stringContaining('prompt=choose-source')
       );
+    });
+
+    it('should prompt to choose source when Suunto is the other provider', async () => {
+      // loam-logger#268: the old inline count only knew Garmin, Strava and
+      // WHOOP, so a Suunto rider connecting WHOOP never saw the prompt.
+      mockFindMany.mockResolvedValue([
+        { provider: 'whoop' },
+        { provider: 'suunto' },
+      ]);
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.redirect).toHaveBeenCalledWith(
+        expect.stringContaining('prompt=choose-source')
+      );
+    });
+
+    it('should count ride providers only, through the shared helper', async () => {
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      // Sign-in providers (google, apple) also live in UserAccount; the
+      // helper filters them out in the query, so they can never trigger the
+      // prompt. The helper's own tests cover the counting.
+      expect(mockFindMany).toHaveBeenCalledWith({
+        where: { userId: 'user-123', provider: { in: ['garmin', 'strava', 'whoop', 'suunto'] } },
+        select: { provider: true },
+      });
     });
 
     it('should handle token exchange failure', async () => {
@@ -762,14 +801,78 @@ describe('auth.whoop routes', () => {
       expect(mockRes.status).toHaveBeenCalledWith(400);
     });
 
-    it('should fall through to the web branch when the attempt is expired or replayed', async () => {
-      // Known gap, shared with Strava and Suunto: past the 10-minute TTL the
-      // user sees a browser 400 rather than a deep link back into the app.
+    it('should fall through to the web branch when an unprefixed state has no attempt', async () => {
+      // Regression guard for the web path: a bare state with no cookie is a
+      // web request with a bad cookie, and stays on the legacy 400. Only the
+      // `m.` prefix (below) makes an expired attempt a mobile one.
       mockConsumeOAuthAttempt.mockResolvedValue(null);
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
       expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.redirect).not.toHaveBeenCalled();
+      expect(mockFindOAuthAttemptOwner).not.toHaveBeenCalled();
+    });
+
+    it('should deep-link invalid_state when a mobile attempt is expired or replayed', async () => {
+      // loam-logger#267: past the 10-minute TTL the row is gone, but the
+      // state still carries the mobile prefix, so the rider gets back into
+      // the app instead of a browser 400.
+      mockConsumeOAuthAttempt.mockResolvedValue(null);
+      mockFindOAuthAttemptOwner.mockResolvedValue('mobile-user-1');
+      mockReq.query = { code: 'auth-code', state: 'm.expired-state' };
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.redirect).toHaveBeenCalledWith(
+        '/auth/whoop/mobile/complete?status=error&reason=invalid_state'
+      );
+      expect(mockRes.status).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(mockFindOAuthAttemptOwner).toHaveBeenCalledWith({ state: 'm.expired-state', provider: 'WHOOP' });
+      expect(mockCaptureProviderConnectFailed).toHaveBeenCalledWith(
+        'mobile-user-1',
+        'whoop',
+        'invalid_state',
+        { isMobileFlow: true }
+      );
+    });
+
+    it('should record the expired-attempt failure anonymously when the row is gone', async () => {
+      mockConsumeOAuthAttempt.mockResolvedValue(null);
+      mockFindOAuthAttemptOwner.mockResolvedValue(undefined);
+      mockReq.query = { code: 'auth-code', state: 'm.expired-state' };
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.redirect).toHaveBeenCalledWith(
+        '/auth/whoop/mobile/complete?status=error&reason=invalid_state'
+      );
+      expect(mockCaptureProviderConnectFailed).toHaveBeenCalledWith(
+        undefined,
+        'whoop',
+        'invalid_state',
+        { isMobileFlow: true }
+      );
+    });
+
+    it('should deep-link access_denied when a declined mobile attempt has expired', async () => {
+      mockConsumeOAuthAttempt.mockResolvedValue(null);
+      mockFindOAuthAttemptOwner.mockResolvedValue('mobile-user-1');
+      mockReq.query = { error: 'access_denied', state: 'm.expired-state' };
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.redirect).toHaveBeenCalledWith(
+        '/auth/whoop/mobile/complete?status=error&reason=access_denied'
+      );
+      expect(mockRes.status).not.toHaveBeenCalled();
+      expect(mockCaptureProviderConnectFailed).toHaveBeenCalledWith(
+        'mobile-user-1',
+        'whoop',
+        'access_denied',
+        { isMobileFlow: true }
+      );
     });
   });
 

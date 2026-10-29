@@ -44,4 +44,14 @@ describe('sanitizeProperties', () => {
     const props = { $current_url: 'https://loamlogger.app/x?csrftoken=keep' };
     expect(sanitizeProperties(props)).toEqual(props);
   });
+
+  it('redacts the provider failure message on /auth/error', () => {
+    const out = sanitizeProperties({
+      $current_url:
+        'https://loamlogger.app/auth/error?message=Strava%20connection%20failed.%20Please%20try%20again.',
+      $referrer: 'https://loamlogger.app/auth/error?message=x&section=data-sources',
+    });
+    expect(out.$current_url).toBe('https://loamlogger.app/auth/error?message=[redacted]');
+    expect(out.$referrer).toBe('https://loamlogger.app/auth/error?message=[redacted]&section=data-sources');
+  });
 });
