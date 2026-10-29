@@ -9,14 +9,14 @@ import { useImportNotificationState } from '../graphql/importSession';
 import { useCalibrationState } from '../graphql/calibration';
 import { useMarkPairedComponentMigrationSeen, useMigratePairedComponents } from '../graphql/userPreferences';
 import StravaGearMappingModal from '../components/StravaGearMappingModal';
-import StravaImportModal from '../components/StravaImportModal';
 import { ImportCompleteOverlay } from '../components/ImportCompleteOverlay';
 import { CalibrationOverlay } from '../components/CalibrationOverlay';
 import { PairedComponentMigrationNotice } from '../components/PairedComponentMigrationNotice';
 import RideStatsCard from '../components/RideStatsCard';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-
-import { useConnectedAccounts } from '../hooks/useConnectedAccounts';
+import { useRideSource } from '../graphql/rideSource';
+import { useManualRideSourceChoice } from '../hooks/useManualRideSourceChoice';
+import { resolveRideSourceState } from '../utils/rideSourceState';
 import { usePriorityBike, type BikeWithPredictions } from '../hooks/usePriorityBike';
 import type { AdvisorSummary } from '../types/prediction';
 import { buildAdvisorSummaryMap, mergeAdvisorSummaries } from '../utils/advisorSummary';
@@ -27,6 +27,7 @@ import {
   RecentRidesCard,
   LogServiceModal,
   LinkBikeModal,
+  RideSourceCard,
 } from '../components/dashboard';
 
 // Cutoff date for showing migration notice - users created after this date
@@ -53,13 +54,8 @@ interface Ride {
 
 const RECENT_COUNT = 20;
 
-const apiBase =
-  (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '') ||
-  (import.meta.env.DEV ? 'http://localhost:4000' : '');
-
 export default function Dashboard() {
   const { user, refetch: refetchUser } = useCurrentUser();
-  const { isStravaConnected } = useConnectedAccounts();
   const navigate = useNavigate();
   const [markMigrationSeen] = useMarkPairedComponentMigrationSeen();
   const [migratePairedComponents] = useMigratePairedComponents();
@@ -144,6 +140,16 @@ export default function Dashboard() {
   // Calibration state (for first-time component calibration overlay)
   const { data: calibrationData } = useCalibrationState();
 
+  // Where this rider's hours come from. Decides which card the hero shows in
+  // place of a bike's empty rides column: nothing connected, an import in
+  // flight, or an import that found nothing. Polls while an import runs.
+  const { rideSource } = useRideSource();
+  const [manualOnly, setManualOnly] = useManualRideSourceChoice(user?.id);
+  const rideSourceState = useMemo(
+    () => (rideSource ? resolveRideSourceState({ ...rideSource, manualOnly }) : null),
+    [rideSource, manualOnly]
+  );
+
   // Derived data
   const rides = ridesData?.rides ?? [];
 
@@ -177,7 +183,6 @@ export default function Dashboard() {
   const [isLogServiceOpen, setIsLogServiceOpen] = useState(false);
   const [logServiceComponentId, setLogServiceComponentId] = useState<string | null>(null);
   const [rideToLink, setRideToLink] = useState<Ride | null>(null);
-  const [isStravaImportOpen, setIsStravaImportOpen] = useState(false);
   const [isImportOverlayOpen, setIsImportOverlayOpen] = useState(false);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
   const [isMigrationNoticeOpen, setIsMigrationNoticeOpen] = useState(false);
@@ -272,14 +277,16 @@ export default function Dashboard() {
     setIsLogServiceOpen(true);
   };
 
-  const handleStravaBackfill = () => {
-    if (isStravaConnected) {
-      setIsStravaImportOpen(true);
-    } else {
-      // Redirect to Strava OAuth
-      window.location.href = `${apiBase}/auth/strava/start`;
-    }
-  };
+  // Only while the account has no rides at all. Once any ride exists, a bike
+  // with none of its own just has none of its own, and the hero says so.
+  const rideSourceCard =
+    rideSourceState && rideSourceState.kind !== 'has-rides' ? (
+      <RideSourceCard
+        state={rideSourceState}
+        onDeclineTracker={() => setManualOnly(true)}
+        onReconsiderTracker={() => setManualOnly(false)}
+      />
+    ) : null;
 
   return (
     <>
@@ -291,8 +298,7 @@ export default function Dashboard() {
             isShowingPriority={isShowingPriority}
             onResetToPriority={resetToPriority}
             onLogService={handleLogService}
-            onStravaBackfill={handleStravaBackfill}
-            isStravaConnected={isStravaConnected}
+            rideSourceCard={rideSourceCard}
             loading={bikesLoading}
             rides={rides}
           />
@@ -361,16 +367,6 @@ export default function Dashboard() {
           onSuccess={() => refetchRides()}
         />
       )}
-
-      {/* Strava Import Modal */}
-      <StravaImportModal
-        open={isStravaImportOpen}
-        onClose={() => setIsStravaImportOpen(false)}
-        onSuccess={() => {
-          refetchRides();
-          setIsStravaImportOpen(false);
-        }}
-      />
 
       {/* Import Complete Overlay */}
       <ImportCompleteOverlay

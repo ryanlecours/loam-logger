@@ -1560,6 +1560,47 @@ export const typeDefs = gql`
     # filtered by date/bike. Replaces client-side aggregation over the
     # rides list so dashboards don't have to pull full weather blobs.
     weatherBreakdown(filter: RidesFilterInput): WeatherBreakdown!
+    """
+    Where this rider's hours come from: which ride providers are connected,
+    the automatic import queued when one was connected, and how many rides
+    have landed from any source. The dashboards decide from these three facts
+    whether to ask for a ride source, say an import is running, or say the
+    import found nothing. Resolved only when selected.
+    """
+    rideSource: RideSource!
+  }
+
+  type RideSource {
+    # Lowercase provider keys the status routes consider connected, in the
+    # order the clients list them: strava, garmin, whoop, suunto.
+    connectedProviders: [String!]!
+    # Every ride on the account, imported, recorded or typed in by hand.
+    rideCount: Int!
+    # The newest automatic import for a provider that is still connected, or
+    # null when none was ever queued.
+    autoImport: AutoImport
+  }
+
+  enum AutoImportStatus {
+    PENDING
+    RUNNING
+    COMPLETED
+    FAILED
+  }
+
+  type AutoImport {
+    # Lowercase provider key, e.g. "strava".
+    provider: String!
+    status: AutoImportStatus!
+    # Rides brought in so far. Counts up while a Garmin or Suunto import runs
+    # (their rides arrive by webhook); Strava reports it only once finished;
+    # WHOOP never reports one. Null when there is nothing to count yet.
+    ridesFound: Int
+    # How far back the import looked, in days: 365 for the connect import,
+    # 30 for WHOOP's sync.
+    lookbackDays: Int!
+    startedAt: String!
+    completedAt: String
   }
 
   """

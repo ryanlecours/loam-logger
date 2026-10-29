@@ -51,3 +51,30 @@ describe('PriorityBikeHero actions', () => {
     );
   });
 });
+
+describe('PriorityBikeHero rides column', () => {
+  // The old empty state offered "Connect Strava" to every rider with a bike
+  // and no rides, including riders who had connected something else.
+  it('no longer offers a Strava-only connect button', () => {
+    renderHero();
+    expect(screen.getByText('No rides on this bike yet')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Strava/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Log a ride' })).toHaveAttribute('href', '/rides');
+  });
+
+  it('shows the ride source card in place of the empty list when given one', () => {
+    render(
+      <MemoryRouter>
+        <PriorityBikeHero
+          bike={bike}
+          isShowingPriority
+          onResetToPriority={vi.fn()}
+          onLogService={vi.fn()}
+          rideSourceCard={<div data-testid="ride-source-card">No ride source connected</div>}
+        />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId('ride-source-card')).toBeInTheDocument();
+    expect(screen.queryByText('No rides on this bike yet')).not.toBeInTheDocument();
+  });
+});

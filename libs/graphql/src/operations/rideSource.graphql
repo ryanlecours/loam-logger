@@ -1,0 +1,17 @@
+query RideSource {
+  me {
+    id
+    rideSource {
+      connectedProviders
+      rideCount
+      autoImport {
+        provider
+        status
+        ridesFound
+        lookbackDays
+        startedAt
+        completedAt
+      }
+    }
+  }
+}

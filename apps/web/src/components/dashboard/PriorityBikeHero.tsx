@@ -1,7 +1,7 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { Wrench, Settings, Bike, ChevronUp, ChevronDown } from 'lucide-react';
-import { StravaIcon } from '../icons/BrandIcons';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import { useBikeRides, type BikeRide } from '../../hooks/useBikeRides';
 import { getBikeName } from '../../utils/formatters';
@@ -17,8 +17,14 @@ interface PriorityBikeHeroProps {
   isShowingPriority: boolean;
   onResetToPriority: () => void;
   onLogService: (componentId?: string) => void;
-  onStravaBackfill?: () => void;
-  isStravaConnected?: boolean;
+  /**
+   * What to show in the rides column when this bike has no rides: the
+   * RideSourceCard the dashboard builds from `me.rideSource` (nothing
+   * connected, import running, import found nothing), or null when the
+   * account has rides elsewhere and the only fact is that none are on this
+   * bike.
+   */
+  rideSourceCard?: ReactNode | null;
   loading?: boolean;
   rides?: BikeRide[];
 }
@@ -28,8 +34,7 @@ export function PriorityBikeHero({
   isShowingPriority,
   onResetToPriority,
   onLogService,
-  onStravaBackfill,
-  isStravaConnected = false,
+  rideSourceCard = null,
   loading = false,
   rides = [],
 }: PriorityBikeHeroProps) {
@@ -202,6 +207,8 @@ export function PriorityBikeHero({
                 </motion.div>
               </AnimatePresence>
             </div>
+          ) : rideSourceCard ? (
+            rideSourceCard
           ) : (
             <div className="priority-hero-bike-rides-empty">
               <p>No rides on this bike yet</p>
@@ -209,15 +216,6 @@ export function PriorityBikeHero({
                 <Link to="/rides" className="empty-cta-link">
                   Log a ride
                 </Link>
-                <span className="empty-cta-divider">or</span>
-                <button
-                  type="button"
-                  className="empty-cta-link empty-cta-strava"
-                  onClick={onStravaBackfill}
-                >
-                  <StravaIcon size={14} />
-                  {isStravaConnected ? 'Backfill from Strava' : 'Connect Strava'}
-                </button>
               </div>
             </div>
           )}

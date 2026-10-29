@@ -53,6 +53,7 @@ import {
 import { createId } from '@paralleldrive/cuid2';
 import { logError, logger } from '../lib/logger';
 import { captureServerEvent, invalidateOptOutCache } from '../lib/posthog';
+import { resolveRideSource } from '../lib/ride-source';
 import { config } from '../config/env';
 import { requireBikeCreation, requireNoDowngradePending, getEffectiveTier, canCreateBike, isProTier, canSeeWeather, canSeePredictions, requirePro } from '../auth/tier-access';
 import { createCheckoutSession, createBillingPortalSession, type StripePlan, type CheckoutPlatform } from '../services/stripe.service';
@@ -7609,6 +7610,10 @@ export const resolvers = {
     // Single groupBy + one count — constant-size response regardless of
     // history length. Saves clients from pulling the full rides list just
     // to bucket by condition.
+    // Three small reads (connected providers, newest connect import, ride
+    // count) that only run when a dashboard selects the field. See
+    // lib/ride-source.ts for what each state means.
+    rideSource: async (parent: { id: string }) => resolveRideSource(parent.id),
     weatherBreakdown: async (
       parent: { id: string },
       { filter }: { filter?: RidesFilterInput | null },
