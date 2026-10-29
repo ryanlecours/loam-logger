@@ -69,7 +69,7 @@ async function renderEmailHtml(
           recipientFirstName,
           appUrl: FRONTEND_URL,
           dashboardUrl: `${FRONTEND_URL}/dashboard`,
-          connectUrl: `${FRONTEND_URL}/settings/connections`,
+          connectUrl: `${FRONTEND_URL}/settings?section=data-sources`,
           unsubscribeUrl,
         })
       );

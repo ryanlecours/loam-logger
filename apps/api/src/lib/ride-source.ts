@@ -73,7 +73,8 @@ export const STUCK_IMPORT_MS = 2 * 60 * 60 * 1000;
  */
 export const WHOOP_SYNC_GRACE_MS = 10 * 60 * 1000;
 
-const RIDE_PROVIDERS: RideProvider[] = ['strava', 'garmin', 'whoop', 'suunto'];
+/** Providers whose connection makes an account a ride source, in client list order. */
+export const RIDE_PROVIDERS: RideProvider[] = ['strava', 'garmin', 'whoop', 'suunto'];
 
 function isRideProvider(value: string): value is RideProvider {
   return (RIDE_PROVIDERS as string[]).includes(value);
