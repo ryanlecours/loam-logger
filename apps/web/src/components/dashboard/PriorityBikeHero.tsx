@@ -108,10 +108,8 @@ export function PriorityBikeHero({
       <div className="priority-hero-body">
         {/* Header */}
         <div className="priority-hero-header">
-          {/* The ride source card is passed only while the account has no
-              rides at all. With no hours ridden there is no health state to
-              report, so the ramp pill (which would say All Good) gives way
-              to the neutral badge until the first ride lands. */}
+          {/* The card is passed only while the account has no rides, so it
+              is also the signal that there is no health state to show yet. */}
           {rideSourceCard ? <NoRidesPill /> : <StatusPill status={overallStatus} />}
           <AnimatePresence mode="wait">
             <motion.h2

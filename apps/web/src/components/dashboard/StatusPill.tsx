@@ -31,7 +31,7 @@ export function StatusPill({ status, className = '' }: StatusPillProps) {
 
   return (
     <span className={`status-pill ${statusClass} ${className}`.trim()}>
-      <Icon className="status-pill-icon" />
+      <Icon className="status-pill-icon" aria-hidden="true" />
       {config.label}
     </span>
   );
@@ -39,15 +39,14 @@ export function StatusPill({ status, className = '' }: StatusPillProps) {
 
 /**
  * The badge a bike wears before any ride has reached it. Health comes from
- * hours ridden, so a bike with none has no health state yet: "All good" there
- * is unearned, and would tell a rider whose import has not landed that their
- * bike has been checked. This is deliberately outside the four-state ramp,
- * in muted sage, so it never reads as a fifth level of severity.
+ * hours ridden, so a bike with none has no health state yet, and "All good"
+ * there is unearned. Deliberately outside the four-state ramp, in muted
+ * sage, so it never reads as a fifth level of severity.
  */
 export function NoRidesPill({ className = '' }: { className?: string }) {
   return (
     <span className={`status-pill status-pill-no-rides ${className}`.trim()}>
-      <Bike className="status-pill-icon" />
+      <Bike className="status-pill-icon" aria-hidden="true" />
       No rides yet
     </span>
   );
