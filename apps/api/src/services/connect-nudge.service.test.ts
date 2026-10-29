@@ -3,6 +3,7 @@ jest.mock('../lib/prisma', () => ({
   prisma: {
     user: { findMany: jest.fn() },
     bike: { findFirst: jest.fn() },
+    emailSend: { create: jest.fn() },
   },
 }));
 
@@ -51,6 +52,7 @@ const render = async (element: ReactElement) => renderToStaticMarkup(element);
 import { prisma } from '../lib/prisma';
 import { logError } from '../lib/logger';
 import {
+  __resetConnectNudgeState,
   CONNECT_NUDGE_DELAY_MS,
   CONNECT_NUDGE_MAX_AGE_MS,
   connectNudgeCandidateWhere,
@@ -67,6 +69,8 @@ const rider = { id: 'user-1', email: 'rider@example.com', name: 'Casey Rider' };
 describe('connect-nudge.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    __resetConnectNudgeState();
+    (mockPrisma.emailSend.create as jest.Mock).mockResolvedValue({});
     mockGetConnectedRideProviders.mockResolvedValue([]);
     (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue({
       nickname: null,
@@ -210,6 +214,39 @@ describe('connect-nudge.service', () => {
       expect(mockCaptureServerEvent).toHaveBeenCalledTimes(1);
       expect(mockCaptureServerEvent).toHaveBeenCalledWith('user-2', 'connect_nudge_email_sent', expect.any(Object));
     }, 10_000);
+
+    it('writes the failed audit row itself when the send throws before one exists', async () => {
+      mockSendReactEmailWithAudit.mockRejectedValueOnce(new Error('render exploded'));
+
+      await expect(maybeSendConnectNudge(rider)).rejects.toThrow('render exploded');
+
+      expect(mockPrisma.emailSend.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          toEmail: 'rider@example.com',
+          emailType: 'welcome_series',
+          triggerSource: 'system_welcome_series',
+          templateVersion: CONNECT_NUDGE_TEMPLATE_VERSION,
+          status: 'failed',
+          failureReason: 'render exploded',
+        },
+      });
+      expect(mockCaptureServerEvent).not.toHaveBeenCalled();
+    });
+
+    it('does not retry a rider whose audit row could not be written either', async () => {
+      (mockPrisma.user.findMany as jest.Mock).mockResolvedValue([rider]);
+      mockSendReactEmailWithAudit.mockRejectedValueOnce(new Error('render exploded'));
+      (mockPrisma.emailSend.create as jest.Mock).mockRejectedValueOnce(new Error('db down'));
+
+      await runConnectNudgeSweep(NOW);
+      expect(logError).toHaveBeenCalledWith('connectNudge:auditRow', expect.any(Error));
+      expect(mockSendReactEmailWithAudit).toHaveBeenCalledTimes(1);
+
+      // The candidate query still returns them next sweep; the in-memory set skips them.
+      await runConnectNudgeSweep(NOW);
+      expect(mockSendReactEmailWithAudit).toHaveBeenCalledTimes(1);
+    });
 
     it('does nothing when nobody is owed the nudge', async () => {
       (mockPrisma.user.findMany as jest.Mock).mockResolvedValue([]);

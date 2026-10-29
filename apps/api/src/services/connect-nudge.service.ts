@@ -43,20 +43,41 @@ import ConnectNudgeEmail, {
 export const CONNECT_NUDGE_DELAY_MS = 48 * 60 * 60 * 1000;
 export const CONNECT_NUDGE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
-/** The audit pair that identifies this email; nothing else writes it. */
+/**
+ * The audit pair that identifies this email. It is unique by convention:
+ * the admin-scheduled welcome series writes `welcome_series` with trigger
+ * `scheduled`, and nothing else writes `system_welcome_series`. Anything
+ * that counts `welcome_series` rows now includes nudges; filter on the
+ * trigger (or the template version) to separate them. A dedicated
+ * EmailType value is the right fix the next time a migration is going out
+ * anyway; it is not worth a staging round trip on its own.
+ */
 export const CONNECT_NUDGE_EMAIL_TYPE: EmailType = 'welcome_series';
 export const CONNECT_NUDGE_TRIGGER_SOURCE: TriggerSource = 'system_welcome_series';
 
 export const CONNECT_NUDGE_EVENT = 'connect_nudge_email_sent';
 
-/** Riders per sweep. At one send per 1.1 seconds this keeps a sweep under two minutes. */
+/**
+ * Riders per sweep. At one send per 1.1 seconds this keeps a sweep under
+ * two minutes, well inside LOCK_TTL_SECONDS. Raise the two together: a
+ * sweep that outlives its lock lets a second instance start sending.
+ */
 const SWEEP_BATCH_SIZE = 100;
 /** Resend allows one send per second. */
 const EMAIL_SEND_DELAY_MS = 1100;
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000;
 
 const LOCK_KEY = 'lock:connect-nudge:global';
+/** Must stay well above SWEEP_BATCH_SIZE * EMAIL_SEND_DELAY_MS. */
 const LOCK_TTL_SECONDS = 10 * 60;
+
+/**
+ * Riders whose send threw before an audit row could be written, for the
+ * life of this process. The candidate query would pick them up again next
+ * sweep; this keeps a render bug or a DB blip from turning into a Resend
+ * call every 30 minutes until someone notices.
+ */
+const failedWithoutAuditRow = new Set<string>();
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -126,21 +147,47 @@ export async function maybeSendConnectNudge(
   const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${generateUnsubscribeToken(user.id)}`;
   const recipientFirstName = user.name?.split(' ')[0] || undefined;
 
-  const result = await sendReactEmailWithAudit({
-    to: user.email,
-    subject: CONNECT_NUDGE_SUBJECT,
-    reactElement: React.createElement(ConnectNudgeEmail, {
-      recipientFirstName,
-      bikeName,
-      connectUrl: connectNudgeUrl(),
-      dashboardUrl: `${FRONTEND_URL}/dashboard`,
-      unsubscribeUrl,
-    }),
-    userId: user.id,
-    emailType: CONNECT_NUDGE_EMAIL_TYPE,
-    triggerSource: CONNECT_NUDGE_TRIGGER_SOURCE,
-    templateVersion: CONNECT_NUDGE_TEMPLATE_VERSION,
-  });
+  let result: Awaited<ReturnType<typeof sendReactEmailWithAudit>>;
+  try {
+    result = await sendReactEmailWithAudit({
+      to: user.email,
+      subject: CONNECT_NUDGE_SUBJECT,
+      reactElement: React.createElement(ConnectNudgeEmail, {
+        recipientFirstName,
+        bikeName,
+        connectUrl: connectNudgeUrl(),
+        dashboardUrl: `${FRONTEND_URL}/dashboard`,
+        unsubscribeUrl,
+      }),
+      userId: user.id,
+      emailType: CONNECT_NUDGE_EMAIL_TYPE,
+      triggerSource: CONNECT_NUDGE_TRIGGER_SOURCE,
+      templateVersion: CONNECT_NUDGE_TEMPLATE_VERSION,
+    });
+  } catch (error) {
+    // sendEmailWithAudit writes a failed row when the provider rejects the
+    // send, but a throw from the render step, the unsubscribe lookup or the
+    // audit insert itself leaves nothing behind, and the dedupe is that row.
+    // Write it here so the rider is done either way, and remember them in
+    // memory in case the row cannot be written either.
+    failedWithoutAuditRow.add(user.id);
+    try {
+      await prisma.emailSend.create({
+        data: {
+          userId: user.id,
+          toEmail: user.email,
+          emailType: CONNECT_NUDGE_EMAIL_TYPE,
+          triggerSource: CONNECT_NUDGE_TRIGGER_SOURCE,
+          templateVersion: CONNECT_NUDGE_TEMPLATE_VERSION,
+          status: 'failed',
+          failureReason: error instanceof Error ? error.message : 'Unknown error',
+        },
+      });
+    } catch (auditError) {
+      logError('connectNudge:auditRow', auditError);
+    }
+    throw error;
+  }
 
   if (result.status === 'sent') {
     captureServerEvent(user.id, CONNECT_NUDGE_EVENT, {
@@ -163,17 +210,24 @@ export async function runConnectNudgeSweep(now: Date = new Date()): Promise<void
 
   let sentAny = false;
   for (const user of candidates) {
+    if (failedWithoutAuditRow.has(user.id)) continue;
     try {
       if (sentAny) await sleep(EMAIL_SEND_DELAY_MS);
       const status = await maybeSendConnectNudge(user);
       if (status !== 'skipped') sentAny = true;
     } catch (error) {
-      // sendEmailWithAudit rethrows after writing the failed row, so this
-      // rider is done; the next one must still get theirs.
+      // The failed row (or the in-memory set) marks this rider done; the
+      // next one must still get theirs. A throw may have followed a real
+      // provider call, so the rate-limit gap still applies before it.
       logError('connectNudge:user', error);
       sentAny = true;
     }
   }
+}
+
+/** Test hook: forget riders remembered as failed without an audit row. */
+export function __resetConnectNudgeState(): void {
+  failedWithoutAuditRow.clear();
 }
 
 // ---------------------------------------------------------------------------

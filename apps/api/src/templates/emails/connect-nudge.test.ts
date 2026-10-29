@@ -22,7 +22,7 @@ describe('ConnectNudgeEmail', () => {
 
     expect(html).toContain('Smuggler is set up. It just has no rides yet.');
     expect(html).toContain('Hi Casey,');
-    expect(html).toContain('You added Smuggler a couple of days ago');
+    expect(html).toContain('You added Smuggler recently');
     expect(html).toContain('href="https://app.test/settings?section=data-sources"');
     expect(html).toContain('Connect a ride source');
     expect(html).toContain('href="https://app.test/dashboard"');

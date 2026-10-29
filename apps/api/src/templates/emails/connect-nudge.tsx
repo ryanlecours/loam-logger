@@ -84,7 +84,7 @@ export default function ConnectNudgeEmail({
             </Text>
 
             <Text className="ll-p" style={baseStyles.p}>
-              You added {bikeRef} a couple of days ago, and nothing has changed on it since. Loam Logger works out
+              You added {bikeRef} recently, and nothing has changed on it since. Loam Logger works out
               when parts need service from the hours you ride, so until rides arrive it has nothing to go on.
             </Text>
 
