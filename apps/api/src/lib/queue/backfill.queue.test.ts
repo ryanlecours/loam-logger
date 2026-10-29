@@ -139,17 +139,85 @@ describe('enqueueBackfillJob', () => {
    * routes put that status straight into the response, so a double-clicked
    * import told the rider a year had been queued when it had not.
    */
-  it('reports already_queued when the job exists, and adds nothing', async () => {
-    mockQueueGetJob.mockResolvedValue({ id: 'backfillYear_garmin_user123_2024' });
+  it('reports already_queued when the job is still pending, and adds nothing', async () => {
+    for (const state of ['waiting', 'active', 'delayed', 'prioritized', 'waiting-children']) {
+      mockQueueAdd.mockClear();
+      const remove = jest.fn();
+      mockQueueGetJob.mockResolvedValueOnce({
+        id: 'backfillYear_garmin_user123_2024',
+        getState: jest.fn().mockResolvedValue(state),
+        remove,
+      });
 
-    const result = await enqueueBackfillJob({
-      userId: 'user123',
-      provider: 'garmin',
-      year: '2024',
-    });
+      const result = await enqueueBackfillJob({
+        userId: 'user123',
+        provider: 'garmin',
+        year: '2024',
+      });
+
+      expect(result.status).toBe('already_queued');
+      expect(remove).not.toHaveBeenCalled();
+      expect(mockQueueAdd).not.toHaveBeenCalled();
+    }
+  });
+
+  /**
+   * BullMQ retains recent completed and failed jobs and absorbs an `add` whose
+   * id is still in either set. A rider who reconnected soon after an earlier
+   * import finished had the auto-import silently dropped, leaving the
+   * BackfillRequest stuck pending. The terminal job must be removed first.
+   */
+  it('removes a completed or failed job under the id before re-adding, so a reconnect re-imports', async () => {
+    for (const state of ['completed', 'failed']) {
+      mockQueueAdd.mockClear();
+      const remove = jest.fn().mockResolvedValue(undefined);
+      mockQueueGetJob.mockResolvedValueOnce({ getState: jest.fn().mockResolvedValue(state), remove });
+
+      const data: BackfillJobData = { userId: 'user123', provider: 'strava', year: 'ytd' };
+      const result = await enqueueBackfillJob(data);
+
+      expect(result).toEqual({ status: 'queued', jobId: 'backfillYear_strava_user123_ytd' });
+      expect(remove).toHaveBeenCalledTimes(1);
+      expect(mockQueueAdd).toHaveBeenCalledWith('backfillYear', data, {
+        jobId: 'backfillYear_strava_user123_ytd',
+      });
+      expect(remove.mock.invocationCallOrder[0]).toBeLessThan(
+        mockQueueAdd.mock.invocationCallOrder[0]
+      );
+    }
+  });
+
+  it('reports already_queued when the stale job cannot be removed, because it has been picked up again', async () => {
+    const remove = jest.fn().mockRejectedValue(new Error('Job is locked'));
+    const getState = jest.fn().mockResolvedValueOnce('failed').mockResolvedValueOnce('active');
+    mockQueueGetJob.mockResolvedValueOnce({ getState, remove });
+
+    const result = await enqueueBackfillJob({ userId: 'user123', provider: 'garmin', year: '2024' });
 
     expect(result.status).toBe('already_queued');
     expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  // A false already_queued is exactly what leaves the BackfillRequest pending,
+  // so a removal that fails for any other reason must surface, not be absorbed.
+  it('rethrows a removal error when the job is still terminal', async () => {
+    const remove = jest.fn().mockRejectedValue(new Error('Redis connection failed'));
+    mockQueueGetJob.mockResolvedValueOnce({ getState: jest.fn().mockResolvedValue('completed'), remove });
+
+    await expect(
+      enqueueBackfillJob({ userId: 'user123', provider: 'garmin', year: '2024' })
+    ).rejects.toThrow('Redis connection failed');
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it('re-adds when the job vanished between lookup and state read', async () => {
+    const remove = jest.fn().mockResolvedValue(undefined);
+    mockQueueGetJob.mockResolvedValueOnce({ getState: jest.fn().mockResolvedValue('unknown'), remove });
+
+    const result = await enqueueBackfillJob({ userId: 'user123', provider: 'garmin', year: '2024' });
+
+    expect(result.status).toBe('queued');
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
   });
 
   // The rejection path is retained as a fallback in case a future BullMQ
