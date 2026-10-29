@@ -45,8 +45,9 @@ describe('ConnectNudgeEmail', () => {
   it('keeps the house style: no em dashes in subject or body', async () => {
     const html = await render(React.createElement(ConnectNudgeEmail, { recipientFirstName: 'Casey' }));
 
-    expect(CONNECT_NUDGE_SUBJECT).not.toContain('2014');
-    expect(html).not.toContain('2014');
+    const emDash = String.fromCharCode(0x2014);
+    expect(CONNECT_NUDGE_SUBJECT).not.toContain(emDash);
+    expect(html).not.toContain(emDash);
   });
 
   it('omits the unsubscribe line when no URL is given', async () => {
