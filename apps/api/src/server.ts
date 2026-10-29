@@ -15,6 +15,7 @@ import { getRedisConnection, checkRedisHealth } from './lib/redis';
 import { startEmailScheduler, stopEmailScheduler } from './services/email-scheduler.service';
 import { startImportSessionChecker, stopImportSessionChecker } from './services/import-session-checker.service';
 import { startWeeklyDigestScheduler, stopWeeklyDigestScheduler } from './services/weekly-digest.service';
+import { startConnectNudgeScheduler, stopConnectNudgeScheduler } from './services/connect-nudge.service';
 import { startOAuthCleanup, stopOAuthCleanup } from './services/oauth-cleanup.service';
 import {
   startPasswordResetCleanup,
@@ -343,6 +344,10 @@ const startServer = async () => {
   // sends each their Friday-morning gear-health digest in their local time)
   startWeeklyDigestScheduler();
 
+  // Start connect nudge scheduler (sweeps every 30 minutes, emails riders who
+  // finished onboarding 48 hours ago with a bike but no ride source, once)
+  startConnectNudgeScheduler();
+
   // Start OAuth attempt cleanup (deletes expired records hourly)
   startOAuthCleanup();
 
@@ -364,6 +369,7 @@ const startServer = async () => {
     await stopEmailScheduler();
     await stopImportSessionChecker();
     stopWeeklyDigestScheduler();
+    stopConnectNudgeScheduler();
     stopOAuthCleanup();
     stopPasswordResetCleanup();
     stopMobileSessionCleanup();
