@@ -3424,6 +3424,13 @@
   border: 1px solid var(--mint-40);
 }
 
+/* Neutral, outside the four-state ramp: see NoRidesPill. */
+.status-pill-no-rides {
+  background: var(--sage-10);
+  color: rgb(var(--text-muted));
+  border: 1px solid var(--sage-15);
+}
+
 .status-pill-icon {
   width: 12px;
   height: 12px;

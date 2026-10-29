@@ -1,7 +1,7 @@
 // Dashboard components barrel export
 export { DashboardLayout } from './DashboardLayout';
 export { PriorityBikeHero } from './PriorityBikeHero';
-export { StatusPill } from './StatusPill';
+export { StatusPill, NoRidesPill } from './StatusPill';
 export { StatusDot } from './StatusDot';
 export { ConfidenceTag } from './ConfidenceTag';
 export { WhyToggle } from './WhyToggle';

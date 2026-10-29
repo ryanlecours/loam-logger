@@ -21,7 +21,12 @@ vi.mock('../../hooks/useBikeRides', () => ({
 vi.mock('../../hooks/useUserTier', () => ({ useUserTier: () => ({ isFree: false }) }));
 vi.mock('./ComponentHealthPanel', () => ({ ComponentHealthPanel: () => null }));
 vi.mock('./AdvisorSummaryCard', () => ({ AdvisorSummaryCard: () => null }));
-vi.mock('./StatusPill', () => ({ StatusPill: () => null }));
+vi.mock('./StatusPill', () => ({
+  StatusPill: ({ status }: { status: string | null }) => (
+    <span data-testid="status-pill">{status}</span>
+  ),
+  NoRidesPill: () => <span data-testid="no-rides-pill">No rides yet</span>,
+}));
 
 const bike = {
   id: 'bike-1',
@@ -76,5 +81,31 @@ describe('PriorityBikeHero rides column', () => {
     );
     expect(screen.getByTestId('ride-source-card')).toBeInTheDocument();
     expect(screen.queryByText('No rides on this bike yet')).not.toBeInTheDocument();
+  });
+});
+
+describe('PriorityBikeHero header pill', () => {
+  it('wears the health pill once the account has rides', () => {
+    renderHero();
+    expect(screen.getByTestId('status-pill')).toHaveTextContent('ALL_GOOD');
+    expect(screen.queryByTestId('no-rides-pill')).not.toBeInTheDocument();
+  });
+
+  // A bike with no hours ridden has no health state. The previous header
+  // said All Good to a rider whose import had not landed yet.
+  it('wears the neutral badge instead of All Good while the account has no rides', () => {
+    render(
+      <MemoryRouter>
+        <PriorityBikeHero
+          bike={bike}
+          isShowingPriority
+          onResetToPriority={vi.fn()}
+          onLogService={vi.fn()}
+          rideSourceCard={<div data-testid="ride-source-card">Importing</div>}
+        />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId('no-rides-pill')).toHaveTextContent('No rides yet');
+    expect(screen.queryByTestId('status-pill')).not.toBeInTheDocument();
   });
 });
