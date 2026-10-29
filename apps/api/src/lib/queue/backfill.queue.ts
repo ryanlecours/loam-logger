@@ -109,10 +109,17 @@ export async function enqueueBackfillJob(
     // The state read above is not a lock. If the job moved on in between
     // (a failed job whose retry just started) the removal throws because the
     // job is locked, and "a backfill for this year is running" is then the truth.
+    // Anything else (Redis unavailable) is rethrown rather than reported as
+    // queued, since a false already_queued is what leaves the request pending.
+    // 'unknown' means the job vanished after getJob; remove() is then a no-op.
     try {
       await existing.remove();
-    } catch {
-      logger.debug({ jobId }, '[BackfillQueue] Stale backfill job is locked (picked up again)');
+    } catch (err) {
+      const stateNow = await existing.getState();
+      if (stateNow === 'completed' || stateNow === 'failed' || stateNow === 'unknown') {
+        throw err;
+      }
+      logger.debug({ jobId, stateNow, err }, '[BackfillQueue] Stale backfill job was picked up again');
       return { status: 'already_queued', jobId };
     }
   }

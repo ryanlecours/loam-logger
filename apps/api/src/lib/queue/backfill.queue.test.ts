@@ -189,12 +189,35 @@ describe('enqueueBackfillJob', () => {
 
   it('reports already_queued when the stale job cannot be removed, because it has been picked up again', async () => {
     const remove = jest.fn().mockRejectedValue(new Error('Job is locked'));
-    mockQueueGetJob.mockResolvedValueOnce({ getState: jest.fn().mockResolvedValue('failed'), remove });
+    const getState = jest.fn().mockResolvedValueOnce('failed').mockResolvedValueOnce('active');
+    mockQueueGetJob.mockResolvedValueOnce({ getState, remove });
 
     const result = await enqueueBackfillJob({ userId: 'user123', provider: 'garmin', year: '2024' });
 
     expect(result.status).toBe('already_queued');
     expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  // A false already_queued is exactly what leaves the BackfillRequest pending,
+  // so a removal that fails for any other reason must surface, not be absorbed.
+  it('rethrows a removal error when the job is still terminal', async () => {
+    const remove = jest.fn().mockRejectedValue(new Error('Redis connection failed'));
+    mockQueueGetJob.mockResolvedValueOnce({ getState: jest.fn().mockResolvedValue('completed'), remove });
+
+    await expect(
+      enqueueBackfillJob({ userId: 'user123', provider: 'garmin', year: '2024' })
+    ).rejects.toThrow('Redis connection failed');
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it('re-adds when the job vanished between lookup and state read', async () => {
+    const remove = jest.fn().mockResolvedValue(undefined);
+    mockQueueGetJob.mockResolvedValueOnce({ getState: jest.fn().mockResolvedValue('unknown'), remove });
+
+    const result = await enqueueBackfillJob({ userId: 'user123', provider: 'garmin', year: '2024' });
+
+    expect(result.status).toBe('queued');
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
   });
 
   // The rejection path is retained as a fallback in case a future BullMQ
