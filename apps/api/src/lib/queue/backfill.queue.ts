@@ -91,10 +91,30 @@ export async function enqueueBackfillJob(
   //
   // The check-then-add race is benign, because the id is what enforces
   // uniqueness and nothing branches on the status beyond display.
+  //
+  // BullMQ also keeps the last few completed and failed jobs (removeOnComplete /
+  // removeOnFail above) and absorbs an `add` whose id is still in either set.
+  // Without clearing them, a rider who disconnected and reconnected within that
+  // window got no import at all: the auto-import on reconnect reported
+  // already_queued against the old finished job and the BackfillRequest stayed
+  // pending forever. A terminal job under this id is removed first, as the lift
+  // and Garmin coordinate-repair enqueues do.
   const existing = await queue.getJob(jobId);
   if (existing) {
-    logger.debug({ jobId }, '[BackfillQueue] Backfill job already exists (duplicate ignored)');
-    return { status: 'already_queued', jobId };
+    const state = await existing.getState();
+    if (state !== 'completed' && state !== 'failed' && state !== 'unknown') {
+      logger.debug({ jobId, state }, '[BackfillQueue] Backfill job already exists (duplicate ignored)');
+      return { status: 'already_queued', jobId };
+    }
+    // The state read above is not a lock. If the job moved on in between
+    // (a failed job whose retry just started) the removal throws because the
+    // job is locked, and "a backfill for this year is running" is then the truth.
+    try {
+      await existing.remove();
+    } catch {
+      logger.debug({ jobId }, '[BackfillQueue] Stale backfill job is locked (picked up again)');
+      return { status: 'already_queued', jobId };
+    }
   }
 
   try {
