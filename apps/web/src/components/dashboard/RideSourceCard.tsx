@@ -159,6 +159,12 @@ export function RideSourceCard({ state, onDeclineTracker, onReconsiderTracker, n
           </button>
         </section>
       );
+
+    default: {
+      // A new state must get a face here, not a blank column.
+      const exhaustive: never = state;
+      return exhaustive;
+    }
   }
 }
 

@@ -49,7 +49,11 @@ export interface RideSource {
 
 /** WHOOP's connect-time sync covers the last 30 days; there is no history import. */
 const WHOOP_LOOKBACK_DAYS = 30;
-/** Derived from the window auto-import queues, so the two cannot drift. */
+/**
+ * Derived from the window auto-import queues, so the two cannot drift. The
+ * period table is Garmin-named for historical reasons; it is the rolling
+ * window vocabulary every backfill provider resolves through.
+ */
 const AUTO_IMPORT_LOOKBACK_DAYS: number = GARMIN_PERIOD_DAYS[AUTO_IMPORT_PERIOD];
 
 /**
@@ -195,6 +199,13 @@ async function findAutoImport(
   // connected provider has a request row: on an account with Strava and
   // WHOOP, the field describes the Strava import, which is the one that can
   // bring in a year of rides and the one with progress to report.
+  //
+  // The connect time is the token row's createdAt. Disconnect deletes that
+  // row, so a reconnect starts a fresh one and gets its grace period. A
+  // re-authorization while still connected upserts the existing row and
+  // keeps the old createdAt, so it skips straight to settled; updatedAt
+  // would fix that but moves on every token refresh too, which would show
+  // "importing" after each refresh for a sync that never ran.
   const whoop = connected.find((c) => c.provider === 'whoop');
   if (whoop) {
     const running = now.getTime() - whoop.connectedAt.getTime() < WHOOP_SYNC_GRACE_MS;
