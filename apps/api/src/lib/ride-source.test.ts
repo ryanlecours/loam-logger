@@ -7,7 +7,7 @@ const mockPrisma = {
 };
 jest.mock('./prisma', () => ({ prisma: mockPrisma }));
 
-import { resolveRideSource, getConnectedRideProviders, WHOOP_SYNC_GRACE_MS } from './ride-source';
+import { resolveRideSource, getConnectedRideProviders, WHOOP_SYNC_GRACE_MS, STUCK_IMPORT_MS } from './ride-source';
 
 const userId = 'user-123';
 const NOW = new Date('2026-10-28T12:00:00Z');
@@ -83,6 +83,56 @@ describe('resolveRideSource', () => {
 
     expect(result.rideCount).toBe(7);
     expect(mockPrisma.ride.count).toHaveBeenCalledWith({ where: { userId } });
+  });
+
+  // The dashboards show the rides once there are any; the import is only
+  // read at zero rides, so its lookups are skipped.
+  it('does not look up the import once the account has rides', async () => {
+    mockPrisma.userIntegration.findMany.mockResolvedValue([{ provider: 'STRAVA', connectedAt: T0 }]);
+    mockPrisma.ride.count.mockResolvedValue(1);
+
+    const result = await resolveRideSource(userId, NOW);
+
+    expect(result).toEqual({ connectedProviders: ['strava'], rideCount: 1, autoImport: null });
+    expect(mockPrisma.backfillRequest.findFirst).not.toHaveBeenCalled();
+  });
+
+  // A dead worker leaves the row in_progress. The checker's stale sweep fails
+  // it after an hour; if that sweep is not running, this is the backstop.
+  it('reports a request with no progress for two hours as failed', async () => {
+    mockPrisma.userIntegration.findMany.mockResolvedValue([{ provider: 'GARMIN', connectedAt: T0 }]);
+    const stale = new Date(NOW.getTime() - STUCK_IMPORT_MS);
+    mockPrisma.backfillRequest.findFirst.mockResolvedValue({
+      provider: 'garmin',
+      status: 'in_progress',
+      ridesFound: null,
+      createdAt: stale,
+      updatedAt: stale,
+      completedAt: null,
+    });
+
+    const result = await resolveRideSource(userId, NOW);
+
+    expect(result.autoImport).toMatchObject({ provider: 'garmin', status: 'FAILED', ridesFound: null });
+    expect(mockPrisma.importSession.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('keeps a request that moved recently as running', async () => {
+    mockPrisma.userIntegration.findMany.mockResolvedValue([{ provider: 'GARMIN', connectedAt: T0 }]);
+    const recent = new Date(NOW.getTime() - STUCK_IMPORT_MS + 60_000);
+    mockPrisma.backfillRequest.findFirst.mockResolvedValue({
+      provider: 'garmin',
+      status: 'in_progress',
+      ridesFound: null,
+      createdAt: T0,
+      updatedAt: recent,
+      completedAt: null,
+    });
+    mockPrisma.importSession.findFirst.mockResolvedValue({ _count: { rides: 3 } });
+
+    const result = await resolveRideSource(userId, NOW);
+
+    expect(result.autoImport).toMatchObject({ status: 'RUNNING', ridesFound: 3 });
   });
 
   it('reports a queued Strava import as pending with nothing counted yet', async () => {
@@ -235,7 +285,9 @@ describe('resolveRideSource', () => {
     expect(result.autoImport?.completedAt).toBe(new Date(connectedAt.getTime() + WHOOP_SYNC_GRACE_MS).toISOString());
   });
 
-  // A tracked import for any connected provider beats the WHOOP stand-in.
+  // A tracked import for any connected provider beats the WHOOP stand-in:
+  // on an account with both, the field describes the import that can bring
+  // in a year of rides.
   it('prefers a real request row over the WHOOP stand-in', async () => {
     mockPrisma.userIntegration.findMany.mockResolvedValue([{ provider: 'GARMIN', connectedAt: T0 }]);
     mockPrisma.oauthToken.findMany.mockResolvedValue([{ provider: 'whoop', createdAt: T0 }]);
@@ -251,6 +303,18 @@ describe('resolveRideSource', () => {
     const result = await resolveRideSource(userId, NOW);
 
     expect(result.connectedProviders).toEqual(['garmin', 'whoop']);
-    expect(result.autoImport).toMatchObject({ provider: 'garmin', ridesFound: 40 });
+    expect(result.autoImport).toMatchObject({ provider: 'garmin', ridesFound: 40, lookbackDays: 365 });
+  });
+
+  it('falls back to the WHOOP stand-in when the other provider has no request row', async () => {
+    mockPrisma.userIntegration.findMany.mockResolvedValue([{ provider: 'GARMIN', connectedAt: T0 }]);
+    mockPrisma.oauthToken.findMany.mockResolvedValue([
+      { provider: 'whoop', createdAt: new Date(NOW.getTime() - 60_000) },
+    ]);
+
+    const result = await resolveRideSource(userId, NOW);
+
+    expect(result.connectedProviders).toEqual(['garmin', 'whoop']);
+    expect(result.autoImport).toMatchObject({ provider: 'whoop', status: 'RUNNING', lookbackDays: 30 });
   });
 });

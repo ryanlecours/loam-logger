@@ -1576,8 +1576,9 @@ export const typeDefs = gql`
     connectedProviders: [String!]!
     # Every ride on the account, imported, recorded or typed in by hand.
     rideCount: Int!
-    # The newest automatic import for a provider that is still connected, or
-    # null when none was ever queued.
+    # The newest automatic import for a provider that is still connected.
+    # Null when none was ever queued, and omitted once the account has rides:
+    # the dashboards only read it while rideCount is zero.
     autoImport: AutoImport
   }
 
@@ -1591,6 +1592,8 @@ export const typeDefs = gql`
   type AutoImport {
     # Lowercase provider key, e.g. "strava".
     provider: String!
+    # A request left pending or running with no progress for two hours reads
+    # as FAILED, so a dead worker cannot leave the dashboards importing forever.
     status: AutoImportStatus!
     # Rides brought in so far. Counts up while a Garmin or Suunto import runs
     # (their rides arrive by webhook); Strava reports it only once finished;

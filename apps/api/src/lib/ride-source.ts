@@ -20,6 +20,7 @@
 import type { BackfillStatus } from '@prisma/client';
 import { prisma } from './prisma';
 import { AUTO_IMPORT_PERIOD } from './auto-import';
+import { GARMIN_PERIOD_DAYS } from './garmin-backfill-periods';
 import type { RideProvider } from './posthog';
 
 export type AutoImportStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
@@ -48,7 +49,17 @@ export interface RideSource {
 
 /** WHOOP's connect-time sync covers the last 30 days; there is no history import. */
 const WHOOP_LOOKBACK_DAYS = 30;
-const AUTO_IMPORT_LOOKBACK_DAYS = 365;
+/** Derived from the window auto-import queues, so the two cannot drift. */
+const AUTO_IMPORT_LOOKBACK_DAYS: number = GARMIN_PERIOD_DAYS[AUTO_IMPORT_PERIOD];
+
+/**
+ * A request still pending or running whose row has not moved for this long is
+ * reported as failed. The import-session checker's stale sweep marks such rows
+ * failed after an hour, so this is a belt for when that sweep is not running:
+ * without it a dead row would keep the dashboards saying "importing" and
+ * polling until someone restarts the checker.
+ */
+export const STUCK_IMPORT_MS = 2 * 60 * 60 * 1000;
 
 /**
  * WHOOP's connect-time sync is a queue job with no row behind it, so there is
@@ -139,10 +150,12 @@ async function findAutoImport(
 
   if (request) {
     const provider = String(request.provider) as RideProvider;
-    const status = STATUS_MAP[request.status];
+    const live = request.status === 'pending' || request.status === 'in_progress';
+    const stuck = live && now.getTime() - request.updatedAt.getTime() >= STUCK_IMPORT_MS;
+    const status: AutoImportStatus = stuck ? 'FAILED' : STATUS_MAP[request.status];
 
     let ridesFound: number | null = request.status === 'completed' ? request.ridesFound : null;
-    if (request.status === 'in_progress' && provider !== 'strava') {
+    if (request.status === 'in_progress' && !stuck && provider !== 'strava') {
       // Garmin and Suunto rides arrive by webhook, tagged with the session
       // the auto import opened, so the session's ride count is the progress.
       const session = await prisma.importSession.findFirst({
@@ -171,7 +184,10 @@ async function findAutoImport(
 
   // WHOOP has no history import and no request row: its connect-time sync is
   // a queue job that covers the last 30 days. Report it as running for a
-  // grace period after the connect, then as settled.
+  // grace period after the connect, then as settled. Only reached when no
+  // connected provider has a request row: on an account with Strava and
+  // WHOOP, the field describes the Strava import, which is the one that can
+  // bring in a year of rides and the one with progress to report.
   const whoop = connected.find((c) => c.provider === 'whoop');
   if (whoop) {
     const running = now.getTime() - whoop.connectedAt.getTime() < WHOOP_SYNC_GRACE_MS;
@@ -193,7 +209,9 @@ export async function resolveRideSource(userId: string, now: Date = new Date()):
     getConnectedRideProviders(userId),
     prisma.ride.count({ where: { userId } }),
   ]);
-  const autoImport = await findAutoImport(userId, connected, now);
+  // The dashboards only read the import while the account has no rides; once
+  // any ride exists they show the rides, so the extra reads are skipped.
+  const autoImport = rideCount > 0 ? null : await findAutoImport(userId, connected, now);
 
   return {
     connectedProviders: connected.map((c) => c.provider),
