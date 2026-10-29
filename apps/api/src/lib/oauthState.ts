@@ -6,6 +6,27 @@ import type { IntegrationProvider, OAuthPlatform, OAuthAttempt } from '@prisma/c
 const ATTEMPT_TTL_MINUTES = 10;
 
 /**
+ * Prefix on the `state` token of a mobile OAuth attempt.
+ *
+ * The attempt row is the only thing that says a callback is mobile, and the
+ * row is gone once the attempt expires or is replayed. Without a second
+ * signal the callback falls into the web cookie branch and strands the rider
+ * on a web error page in the system browser (loam-logger#267). The prefix
+ * survives the round trip in the token itself, so the callback can read it
+ * before consuming the row. Web start routes issue bare hex states, which
+ * can never carry it.
+ *
+ * `consumeOAuthAttempt` hashes the token exactly as issued, prefix included,
+ * so it needs no knowledge of the prefix.
+ */
+export const MOBILE_STATE_PREFIX = 'm.';
+
+/** True when the state token was issued by a mobile start route. */
+export function isMobileOAuthState(state: string): boolean {
+  return state.startsWith(MOBILE_STATE_PREFIX);
+}
+
+/**
  * Create an OAuthAttempt record for mobile OAuth flows.
  *
  * @param includeVerifier - If true, generates a PKCE code_verifier stored in nonce (for Garmin).
@@ -19,7 +40,8 @@ export async function createOAuthAttempt(params: {
 }): Promise<{ state: string; verifier: string; attempt: OAuthAttempt }> {
   const { userId, provider, platform, includeVerifier = false } = params;
 
-  const state = randomString(32);
+  const random = randomString(32);
+  const state = platform === 'MOBILE' ? `${MOBILE_STATE_PREFIX}${random}` : random;
   const verifier = includeVerifier ? randomString(64) : '';
   const stateHash = await sha256(state);
 
@@ -75,6 +97,25 @@ export async function consumeOAuthAttempt(params: {
   }
 
   return { attempt, verifier: attempt.nonce };
+}
+
+/**
+ * Who started an attempt that can no longer be consumed (expired or already
+ * used). For analytics attribution only: the rider is never authenticated
+ * from this, and the row may already be gone (see cleanupExpiredAttempts),
+ * in which case the event is recorded anonymously.
+ */
+export async function findOAuthAttemptOwner(params: {
+  state: string;
+  provider: IntegrationProvider;
+}): Promise<string | undefined> {
+  const { state, provider } = params;
+  const stateHash = await sha256(state);
+  const attempt = await prisma.oAuthAttempt.findUnique({
+    where: { stateHash },
+    select: { userId: true, provider: true },
+  });
+  return attempt?.provider === provider ? attempt.userId : undefined;
 }
 
 /**

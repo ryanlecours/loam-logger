@@ -6,7 +6,12 @@ import { sendBadRequest, sendUnauthorized, sendInternalError, sendSuccess, sendT
 import { checkMutationRateLimit } from '../lib/rate-limit';
 import { createLogger } from '../lib/logger';
 import { revokeStravaTokenForUser } from '../lib/strava-token';
-import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
+import {
+  createOAuthAttempt,
+  consumeOAuthAttempt,
+  findOAuthAttemptOwner,
+  isMobileOAuthState,
+} from '../lib/oauthState';
 import { encrypt } from '../lib/crypto';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
 import {
@@ -16,6 +21,7 @@ import {
   captureProviderDisconnected,
 } from '../lib/posthog';
 import { startAutoImport } from '../lib/auto-import';
+import { shouldPromptForDataSource } from '../lib/data-source-prompt';
 
 const log = createLogger('strava-oauth');
 
@@ -168,6 +174,16 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
         userId = dbAttempt.attempt.userId;
         attemptId = dbAttempt.attempt.id;
         log.info({ userId, attemptId }, 'Strava callback: mobile flow (DB state)');
+      } else if (isMobileOAuthState(state)) {
+        // A mobile attempt that expired or was replayed. The system browser
+        // holds no cookie, so without this branch the rider would land on the
+        // web error page and never return to the app. Deep-link back instead;
+        // the attempt owner (if the row still exists) is only used to
+        // attribute the failure event.
+        isMobileFlow = true;
+        userId = await findOAuthAttemptOwner({ state, provider: 'STRAVA' });
+        log.warn({ userId }, 'Strava callback: expired or replayed mobile attempt');
+        return redirectError('invalid_state');
       } else {
         // Fall back to cookie-based validation (web flow)
         const cookieState = req.cookies['ll_strava_state'];
@@ -309,21 +325,14 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       // clock instead of waiting for the rider to find the manual Sync.
       await startAutoImport(authenticatedUserId, 'strava');
 
-      // Check if multiple providers are connected (for data source prompt)
-      const userAccounts = await prisma.userAccount.findMany({
-        where: { userId },
-        select: { provider: true },
-      });
-
-      const hasGarmin = userAccounts.some((acc) => acc.provider === 'garmin');
-      const hasStrava = userAccounts.some((acc) => acc.provider === 'strava');
-      const bothConnected = hasGarmin && hasStrava;
+      // More than one ride provider connected now: ask which one is authoritative
+      const promptForDataSource = await shouldPromptForDataSource(authenticatedUserId);
 
       if (isMobileFlow && attemptId) {
         // Attempt already consumed atomically by consumeOAuthAttempt
         log.info({ userId, attemptId }, 'Strava OAuth callback success (mobile)');
         const params = new URLSearchParams({ status: 'success' });
-        if (bothConnected) params.set('prompt', 'choose-source');
+        if (promptForDataSource) params.set('prompt', 'choose-source');
         return res.redirect(`/auth/strava/mobile/complete?${params.toString()}`);
       }
 
@@ -336,7 +345,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       let redirectPath: string;
       if (!user?.onboardingCompleted) {
         redirectPath = '/onboarding?step=6';
-      } else if (bothConnected) {
+      } else if (promptForDataSource) {
         redirectPath = '/settings?strava=connected&prompt=choose-source';
       } else {
         redirectPath = '/settings?strava=connected';

@@ -8,7 +8,12 @@ import { createLogger } from '../lib/logger';
 import { revokeGarminTokenForUser } from '../lib/garmin-token';
 import { deleteRideStreamsForProvider } from '../lib/ride-stream-store';
 import { revokeIntegration } from '../lib/integration-tokens';
-import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
+import {
+  createOAuthAttempt,
+  consumeOAuthAttempt,
+  findOAuthAttemptOwner,
+  isMobileOAuthState,
+} from '../lib/oauthState';
 import { encrypt } from '../lib/crypto';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
 import {
@@ -18,6 +23,7 @@ import {
   captureProviderDisconnected,
 } from '../lib/posthog';
 import { startAutoImport } from '../lib/auto-import';
+import { shouldPromptForDataSource } from '../lib/data-source-prompt';
 
 const log = createLogger('garmin-oauth');
 
@@ -179,6 +185,16 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
         verifier = dbAttempt.verifier;
         attemptId = dbAttempt.attempt.id;
         log.info({ userId, attemptId }, 'Garmin callback: mobile flow (DB state)');
+      } else if (isMobileOAuthState(state)) {
+        // A mobile attempt that expired or was replayed. The system browser
+        // holds no cookie, so without this branch the rider would land on the
+        // web error page and never return to the app. Deep-link back instead;
+        // the attempt owner (if the row still exists) is only used to
+        // attribute the failure event.
+        isMobileFlow = true;
+        userId = await findOAuthAttemptOwner({ state, provider: 'GARMIN' });
+        log.warn({ userId }, 'Garmin callback: expired or replayed mobile attempt');
+        return redirectError('invalid_state');
       } else {
         // Fall back to cookie-based validation (web flow)
         const cookieState = req.cookies['ll_oauth_state'];
@@ -332,7 +348,18 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
 
       const appBase = process.env.APP_BASE_URL ?? 'http://localhost:5173';
       const user = await prisma.user.findUnique({ where: { id: userId } });
-      const redirectPath = !user?.onboardingCompleted ? '/onboarding?step=6' : '/settings?garmin=connected';
+
+      // More than one ride provider connected now: ask which one is authoritative
+      const promptForDataSource = await shouldPromptForDataSource(authenticatedUserId);
+
+      let redirectPath: string;
+      if (!user?.onboardingCompleted) {
+        redirectPath = '/onboarding?step=6';
+      } else if (promptForDataSource) {
+        redirectPath = '/settings?garmin=connected&prompt=choose-source';
+      } else {
+        redirectPath = '/settings?garmin=connected';
+      }
 
       log.info({ userId }, 'Garmin OAuth callback success (web)');
       return res.redirect(`${appBase.replace(/\/$/, '')}${redirectPath}`);

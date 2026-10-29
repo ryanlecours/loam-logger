@@ -14,8 +14,14 @@ import {
 } from '../lib/posthog';
 import { startAutoImport } from '../lib/auto-import';
 import { checkMutationRateLimit } from '../lib/rate-limit';
-import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
+import {
+  createOAuthAttempt,
+  consumeOAuthAttempt,
+  findOAuthAttemptOwner,
+  isMobileOAuthState,
+} from '../lib/oauthState';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
+import { shouldPromptForDataSource } from '../lib/data-source-prompt';
 
 const log = createLogger('whoop-oauth');
 
@@ -182,13 +188,20 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string; error
       const { code, state, error: oauthError } = req.query;
 
       // The user declined on WHOOP's consent screen: we get `error` and no
-      // `code`. Only acts when the state resolves to a mobile attempt, so the
-      // web path still falls through to the 400 below.
+      // `code`. Only acts when the state is a mobile one (a live attempt, or
+      // the mobile prefix on an attempt that has since expired), so the web
+      // path still falls through to the 400 below.
       if (oauthError && state) {
         const denied = await consumeOAuthAttempt({ state, provider: 'WHOOP' });
         if (denied) {
           log.info({ userId: denied.attempt.userId, oauthError }, 'WHOOP consent declined (mobile)');
           captureProviderConnectFailed(denied.attempt.userId, 'whoop', 'access_denied', { isMobileFlow: true });
+          return res.redirect('/auth/whoop/mobile/complete?status=error&reason=access_denied');
+        }
+        if (isMobileOAuthState(state)) {
+          const owner = await findOAuthAttemptOwner({ state, provider: 'WHOOP' });
+          log.info({ userId: owner, oauthError }, 'WHOOP consent declined (mobile, attempt expired)');
+          captureProviderConnectFailed(owner, 'whoop', 'access_denied', { isMobileFlow: true });
           return res.redirect('/auth/whoop/mobile/complete?status=error&reason=access_denied');
         }
       }
@@ -205,6 +218,17 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string; error
         userId = dbAttempt.attempt.userId;
         attemptId = dbAttempt.attempt.id;
         log.info({ userId, attemptId }, 'WHOOP callback: mobile flow (DB state)');
+      } else if (isMobileOAuthState(state)) {
+        // A mobile attempt that expired or was replayed. The system browser
+        // holds no cookie, so without this branch the rider would get the
+        // web 400 below and never return to the app. Deep-link back instead;
+        // the attempt owner (if the row still exists) is only used to
+        // attribute the failure event. Redirects directly rather than via
+        // failCallback, which keeps the web contract untouched by construction.
+        const owner = await findOAuthAttemptOwner({ state, provider: 'WHOOP' });
+        log.warn({ userId: owner }, 'WHOOP callback: expired or replayed mobile attempt');
+        captureProviderConnectFailed(owner, 'whoop', 'invalid_state', { isMobileFlow: true });
+        return res.redirect('/auth/whoop/mobile/complete?status=error&reason=invalid_state');
       } else {
         // Web flow: httpOnly cookie state plus an authenticated session.
         const cookieState = req.cookies['ll_whoop_state'];
@@ -349,16 +373,8 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string; error
         return res.redirect('/auth/whoop/mobile/complete?status=success');
       }
 
-      // Check if user has multiple providers connected
-      const userAccounts = await prisma.userAccount.findMany({
-        where: { userId },
-        select: { provider: true },
-      });
-
-      const hasGarmin = userAccounts.some((acc) => acc.provider === 'garmin');
-      const hasStrava = userAccounts.some((acc) => acc.provider === 'strava');
-      const hasWhoop = userAccounts.some((acc) => acc.provider === 'whoop');
-      const multipleConnected = [hasGarmin, hasStrava, hasWhoop].filter(Boolean).length > 1;
+      // More than one ride provider connected now: ask which one is authoritative
+      const multipleConnected = await shouldPromptForDataSource(authenticatedUserId);
 
       // Clear state cookie and redirect back to app
       res.clearCookie('ll_whoop_state', { path: '/' });
