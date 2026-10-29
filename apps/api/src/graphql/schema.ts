@@ -1565,9 +1565,10 @@ export const typeDefs = gql`
     the automatic import queued when one was connected, and how many rides
     have landed from any source. The dashboards decide from these three facts
     whether to ask for a ride source, say an import is running, or say the
-    import found nothing. Resolved only when selected.
+    import found nothing. Resolved only when selected. Nullable so a failed
+    read degrades to "no card" instead of nulling the whole User.
     """
-    rideSource: RideSource!
+    rideSource: RideSource
   }
 
   type RideSource {

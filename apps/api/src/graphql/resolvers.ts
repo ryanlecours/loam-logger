@@ -7608,8 +7608,17 @@ export const resolvers = {
     },
     // Three small reads (connected providers, newest connect import, ride
     // count) that only run when a dashboard selects the field. See
-    // lib/ride-source.ts for what each state means.
-    rideSource: async (parent: { id: string }) => resolveRideSource(parent.id),
+    // lib/ride-source.ts for what each state means. A failure here must not
+    // null the User it hangs off (GraphQL would null the nearest nullable
+    // parent), so it is logged and the field resolves null: no card.
+    rideSource: async (parent: { id: string }) => {
+      try {
+        return await resolveRideSource(parent.id);
+      } catch (err) {
+        logError('User.rideSource', err);
+        return null;
+      }
+    },
     // Server-side aggregation over the user's rides in a date/bike window.
     // Single groupBy + one count — constant-size response regardless of
     // history length. Saves clients from pulling the full rides list just

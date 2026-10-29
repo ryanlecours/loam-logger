@@ -148,6 +148,11 @@ jest.mock('../../lib/queue/weather.queue', () => ({
 // tests. Without this, any dev machine or CI job with POSTHOG_API_KEY set
 // would ship events to PostHog Cloud attributed to the hardcoded test
 // distinctId (`user-123`), polluting production analytics.
+const mockResolveRideSource = jest.fn();
+jest.mock('../../lib/ride-source', () => ({
+  resolveRideSource: (...args: unknown[]) => mockResolveRideSource(...args),
+}));
+
 jest.mock('../../lib/posthog', () => ({
   captureServerEvent: jest.fn(),
   flushPostHog: jest.fn().mockResolvedValue(undefined),
@@ -6390,6 +6395,34 @@ describe('GraphQL Resolvers', () => {
         bikes: [],
       });
       expect(mockBikeFindMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('User.rideSource', () => {
+    const resolver = resolvers.User.rideSource;
+
+    beforeEach(() => {
+      mockResolveRideSource.mockReset();
+    });
+
+    it('resolves the ride source for the parent user', async () => {
+      const rideSource = { connectedProviders: ['strava'], rideCount: 0, autoImport: null };
+      mockResolveRideSource.mockResolvedValueOnce(rideSource);
+
+      const result = await resolver({ id: 'user-123' }, {}, createMockContext('user-123') as never);
+
+      expect(result).toEqual(rideSource);
+      expect(mockResolveRideSource).toHaveBeenCalledWith('user-123');
+    });
+
+    // The field is nullable so a transient read failure drops the card, not
+    // the whole `me` the dashboards hang everything else off.
+    it('resolves null instead of throwing when the read fails', async () => {
+      mockResolveRideSource.mockRejectedValueOnce(new Error('connection reset'));
+
+      await expect(
+        resolver({ id: 'user-123' }, {}, createMockContext('user-123') as never)
+      ).resolves.toBeNull();
     });
   });
 

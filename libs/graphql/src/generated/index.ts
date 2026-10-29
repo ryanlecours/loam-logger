@@ -2005,9 +2005,10 @@ export type User = {
    * the automatic import queued when one was connected, and how many rides
    * have landed from any source. The dashboards decide from these three facts
    * whether to ask for a ride source, say an import is running, or say the
-   * import found nothing. Resolved only when selected.
+   * import found nothing. Resolved only when selected. Nullable so a failed
+   * read degrades to "no card" instead of nulling the whole User.
    */
-  rideSource: RideSource;
+  rideSource?: Maybe<RideSource>;
   rideSyncNotificationMode: RideSyncNotificationMode;
   rides: Array<Ride>;
   ridesMissingWeather: Scalars['Int']['output'];
@@ -2172,7 +2173,7 @@ export type MeQuery = { __typename?: 'Query', me?: { __typename?: 'User', id: st
 export type RideSourceQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type RideSourceQuery = { __typename?: 'Query', me?: { __typename?: 'User', id: string, rideSource: { __typename?: 'RideSource', connectedProviders: Array<string>, rideCount: number, autoImport?: { __typename?: 'AutoImport', provider: string, status: AutoImportStatus, ridesFound?: number | null, lookbackDays: number, startedAt: string, completedAt?: string | null } | null } } | null };
+export type RideSourceQuery = { __typename?: 'Query', me?: { __typename?: 'User', id: string, rideSource?: { __typename?: 'RideSource', connectedProviders: Array<string>, rideCount: number, autoImport?: { __typename?: 'AutoImport', provider: string, status: AutoImportStatus, ridesFound?: number | null, lookbackDays: number, startedAt: string, completedAt?: string | null } | null } | null } | null };
 
 export type RideTypesQueryVariables = Exact<{ [key: string]: never; }>;
 

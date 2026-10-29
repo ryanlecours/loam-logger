@@ -275,6 +275,16 @@ describe('resolveRideSource', () => {
     });
   });
 
+  // The grace window is half-open: at exactly its length the sync counts as settled.
+  it('settles the WHOOP stand-in at exactly the grace boundary', async () => {
+    const connectedAt = new Date(NOW.getTime() - WHOOP_SYNC_GRACE_MS);
+    mockPrisma.oauthToken.findMany.mockResolvedValue([{ provider: 'whoop', createdAt: connectedAt }]);
+
+    const result = await resolveRideSource(userId, NOW);
+
+    expect(result.autoImport).toMatchObject({ provider: 'whoop', status: 'COMPLETED' });
+  });
+
   it('treats an older WHOOP connect as settled', async () => {
     const connectedAt = new Date(NOW.getTime() - WHOOP_SYNC_GRACE_MS - 1);
     mockPrisma.oauthToken.findMany.mockResolvedValue([{ provider: 'whoop', createdAt: connectedAt }]);

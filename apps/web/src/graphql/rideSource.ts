@@ -28,7 +28,8 @@ export const RIDE_SOURCE = gql`
 `;
 
 interface RideSourceQueryData {
-  me: { id: string; rideSource: RideSourceData } | null;
+  // rideSource is nullable on the schema: a failed read means no card.
+  me: { id: string; rideSource: RideSourceData | null } | null;
 }
 
 /** Poll this often while an import is running, matching the import checker's cadence. */
@@ -44,10 +45,11 @@ export function useRideSource() {
 
   // Polling follows the data: it starts when an import appears and stops once
   // the import settles or a ride lands. Without it a rider who has just
-  // connected would stare at "importing" until a reload. The server's stale
-  // sweep fails a request with no progress for an hour, so this cannot poll
-  // forever against a stuck row. Decided by the same helper the card uses so
-  // the two cannot drift.
+  // connected would stare at "importing" until a reload. It cannot poll
+  // forever against a stuck row: the server's stale sweep fails a request
+  // with no progress after an hour, and the resolver itself reports one as
+  // failed after two even if that sweep is down. Decided by the same helper
+  // the card uses so the two cannot drift.
   const settling = isRideSourceSettling(
     rideSource ? resolveRideSourceState({ ...rideSource, manualOnly: false }) : null
   );

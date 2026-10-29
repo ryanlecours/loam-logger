@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { Link } from 'react-router';
 import { Loader2, Smartphone, PenLine } from 'lucide-react';
 import ConnectStravaLink from '../ConnectStravaLink';
@@ -48,12 +49,15 @@ interface RideSourceCardProps {
  * card itself stays in Loam's palette and never claims a bike is fine.
  */
 export function RideSourceCard({ state, onDeclineTracker, onReconsiderTracker, now }: RideSourceCardProps) {
+  // One card per dashboard today, but a static id would collide the moment a
+  // second one rendered, and aria-labelledby would then point at the wrong one.
+  const titleId = useId();
   switch (state.kind) {
     case 'none':
       return (
-        <section className="ride-source-card" aria-labelledby="ride-source-title">
+        <section className="ride-source-card" aria-labelledby={titleId}>
           <p className="ride-source-eyebrow">Ride source</p>
-          <h4 id="ride-source-title" className="ride-source-title">
+          <h4 id={titleId} className="ride-source-title">
             No ride source connected
           </h4>
           <p className="ride-source-body">
@@ -80,9 +84,9 @@ export function RideSourceCard({ state, onDeclineTracker, onReconsiderTracker, n
           ? `${state.ridesFound} ride${state.ridesFound === 1 ? '' : 's'} so far`
           : 'Rides show up here as they arrive. The first ones usually land within a few minutes.';
       return (
-        <section className="ride-source-card ride-source-card-busy" aria-labelledby="ride-source-title" aria-live="polite">
+        <section className="ride-source-card ride-source-card-busy" aria-labelledby={titleId} aria-live="polite">
           <p className="ride-source-eyebrow">Ride source</p>
-          <h4 id="ride-source-title" className="ride-source-title">
+          <h4 id={titleId} className="ride-source-title">
             <Loader2 size={16} className="ride-source-spinner" aria-hidden="true" />
             Importing your rides from {label}
           </h4>
@@ -96,9 +100,9 @@ export function RideSourceCard({ state, onDeclineTracker, onReconsiderTracker, n
       const label = rideProviderLabel(state.provider);
       const window = describeLookback(state.lookbackDays);
       return (
-        <section className="ride-source-card" aria-labelledby="ride-source-title">
+        <section className="ride-source-card" aria-labelledby={titleId}>
           <p className="ride-source-eyebrow">Ride source</p>
-          <h4 id="ride-source-title" className="ride-source-title">
+          <h4 id={titleId} className="ride-source-title">
             {window ? `Nothing found in ${window}` : 'No rides have come in yet'}
           </h4>
           <p className="ride-source-body">
@@ -117,9 +121,9 @@ export function RideSourceCard({ state, onDeclineTracker, onReconsiderTracker, n
     case 'failed': {
       const label = rideProviderLabel(state.provider);
       return (
-        <section className="ride-source-card ride-source-card-warning" aria-labelledby="ride-source-title">
+        <section className="ride-source-card ride-source-card-warning" aria-labelledby={titleId}>
           <p className="ride-source-eyebrow">Ride source</p>
-          <h4 id="ride-source-title" className="ride-source-title">
+          <h4 id={titleId} className="ride-source-title">
             The import from {label} didn&apos;t finish
           </h4>
           <p className="ride-source-body">
@@ -141,9 +145,9 @@ export function RideSourceCard({ state, onDeclineTracker, onReconsiderTracker, n
 
     case 'manual':
       return (
-        <section className="ride-source-card" aria-labelledby="ride-source-title">
+        <section className="ride-source-card" aria-labelledby={titleId}>
           <p className="ride-source-eyebrow">Ride source</p>
-          <h4 id="ride-source-title" className="ride-source-title">
+          <h4 id={titleId} className="ride-source-title">
             Logging rides by hand
           </h4>
           <p className="ride-source-body">
