@@ -5,7 +5,7 @@ import { Wrench, Settings, Bike, ChevronUp, ChevronDown } from 'lucide-react';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import { useBikeRides, type BikeRide } from '../../hooks/useBikeRides';
 import { getBikeName } from '../../utils/formatters';
-import { StatusPill } from './StatusPill';
+import { StatusPill, NoRidesPill } from './StatusPill';
 import { ComponentHealthPanel } from './ComponentHealthPanel';
 import { AdvisorSummaryCard } from './AdvisorSummaryCard';
 import { useUserTier } from '../../hooks/useUserTier';
@@ -108,7 +108,11 @@ export function PriorityBikeHero({
       <div className="priority-hero-body">
         {/* Header */}
         <div className="priority-hero-header">
-          <StatusPill status={overallStatus} />
+          {/* The ride source card is passed only while the account has no
+              rides at all. With no hours ridden there is no health state to
+              report, so the ramp pill (which would say All Good) gives way
+              to the neutral badge until the first ride lands. */}
+          {rideSourceCard ? <NoRidesPill /> : <StatusPill status={overallStatus} />}
           <AnimatePresence mode="wait">
             <motion.h2
               key={bike.id}

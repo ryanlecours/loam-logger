@@ -3424,6 +3424,14 @@
   border: 1px solid var(--mint-40);
 }
 
+/* Not a health state: a bike with no ride hours has nothing to report yet.
+   Muted sage, outside the four-state ramp, so it never reads as severity. */
+.status-pill-no-rides {
+  background: var(--sage-10);
+  color: rgb(var(--text-muted));
+  border: 1px solid var(--sage-15);
+}
+
 .status-pill-icon {
   width: 12px;
   height: 12px;
