@@ -148,22 +148,35 @@ async function findAutoImport(
     },
   });
 
-  if (request) {
-    const provider = String(request.provider) as RideProvider;
+  // The where clause only admits connected ride providers, but the column is
+  // the wider AuthProvider enum; keep the type honest rather than cast.
+  const requestProvider = request ? String(request.provider) : null;
+  if (request && requestProvider && isRideProvider(requestProvider)) {
+    const provider = requestProvider;
     const live = request.status === 'pending' || request.status === 'in_progress';
     const stuck = live && now.getTime() - request.updatedAt.getTime() >= STUCK_IMPORT_MS;
     const status: AutoImportStatus = stuck ? 'FAILED' : STATUS_MAP[request.status];
 
     let ridesFound: number | null = request.status === 'completed' ? request.ridesFound : null;
+    // The request row has no start column of its own: it is upserted on
+    // every connect and the Garmin worker touches updatedAt per chunk, so
+    // neither createdAt nor updatedAt is a steady "started". While a Garmin
+    // or Suunto import runs, the session the auto import opened carries the
+    // real start; otherwise updatedAt is the last moment the row moved
+    // (queue time for pending, pickup for a Strava run, settlement after).
+    let startedAt = request.updatedAt;
     if (request.status === 'in_progress' && !stuck && provider !== 'strava') {
       // Garmin and Suunto rides arrive by webhook, tagged with the session
       // the auto import opened, so the session's ride count is the progress.
       const session = await prisma.importSession.findFirst({
         where: { userId, provider: request.provider, status: 'running' },
         orderBy: { startedAt: 'desc' },
-        select: { _count: { select: { rides: true } } },
+        select: { startedAt: true, _count: { select: { rides: true } } },
       });
-      ridesFound = session ? session._count.rides : null;
+      if (session) {
+        ridesFound = session._count.rides;
+        startedAt = session.startedAt;
+      }
     }
 
     return {
@@ -171,13 +184,7 @@ async function findAutoImport(
       status,
       ridesFound,
       lookbackDays: AUTO_IMPORT_LOOKBACK_DAYS,
-      // The row is upserted on every connect and touched by the worker, so
-      // while it is live updatedAt is the most recent sign of progress. Once
-      // it has settled, createdAt is the only start time it still carries.
-      startedAt: (status === 'COMPLETED' || status === 'FAILED'
-        ? request.createdAt
-        : request.updatedAt
-      ).toISOString(),
+      startedAt: startedAt.toISOString(),
       completedAt: request.completedAt?.toISOString() ?? null,
     };
   }

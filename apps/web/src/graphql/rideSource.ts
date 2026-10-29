@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { gql, useQuery } from '@apollo/client';
-import { isRideSourceSettling, resolveRideSourceState, type RideSourceData } from '../utils/rideSourceState';
+import { isRideSourceSettling, type RideSourceData } from '../utils/rideSourceState';
 
 /**
  * Where the rider's hours come from. Selected on its own rather than added to
@@ -50,9 +50,7 @@ export function useRideSource() {
   // with no progress after an hour, and the resolver itself reports one as
   // failed after two even if that sweep is down. Decided by the same helper
   // the card uses so the two cannot drift.
-  const settling = isRideSourceSettling(
-    rideSource ? resolveRideSourceState({ ...rideSource, manualOnly: false }) : null
-  );
+  const settling = isRideSourceSettling(rideSource);
   useEffect(() => {
     if (!settling) return;
     startPolling(RIDE_SOURCE_POLL_MS);

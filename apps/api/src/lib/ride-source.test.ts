@@ -128,7 +128,7 @@ describe('resolveRideSource', () => {
       updatedAt: recent,
       completedAt: null,
     });
-    mockPrisma.importSession.findFirst.mockResolvedValue({ _count: { rides: 3 } });
+    mockPrisma.importSession.findFirst.mockResolvedValue({ startedAt: T0, _count: { rides: 3 } });
 
     const result = await resolveRideSource(userId, NOW);
 
@@ -172,11 +172,22 @@ describe('resolveRideSource', () => {
       updatedAt: T0,
       completedAt: null,
     });
-    mockPrisma.importSession.findFirst.mockResolvedValue({ _count: { rides: 12 } });
+    const sessionStart = new Date('2026-10-28T10:50:00Z');
+    mockPrisma.importSession.findFirst.mockResolvedValue({
+      startedAt: sessionStart,
+      _count: { rides: 12 },
+    });
 
     const result = await resolveRideSource(userId, NOW);
 
-    expect(result.autoImport).toMatchObject({ provider: 'garmin', status: 'RUNNING', ridesFound: 12 });
+    expect(result.autoImport).toMatchObject({
+      provider: 'garmin',
+      status: 'RUNNING',
+      ridesFound: 12,
+      // The worker bumps the request's updatedAt per chunk; the session is
+      // the one record that still knows when the import began.
+      startedAt: sessionStart.toISOString(),
+    });
     expect(mockPrisma.importSession.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId, provider: 'garmin', status: 'running' } })
     );
@@ -219,7 +230,7 @@ describe('resolveRideSource', () => {
       status: 'COMPLETED',
       ridesFound: 0,
       lookbackDays: 365,
-      startedAt: T0.toISOString(),
+      startedAt: done.toISOString(),
       completedAt: done.toISOString(),
     });
   });

@@ -26,16 +26,22 @@ export function readManualRideSourceChoice(userId: string | undefined): boolean 
 }
 
 export function useManualRideSourceChoice(userId: string | undefined): [boolean, (manualOnly: boolean) => void] {
-  const [manualOnly, setManualOnlyState] = useState(() => readManualRideSourceChoice(userId));
+  // The value is stored with the account it belongs to. When the account
+  // changes (sign-out, sign-in as someone else) the stale pair is ignored and
+  // the new account's choice is read during the same render, so the previous
+  // rider's answer is never shown for a frame.
+  const [choice, setChoice] = useState(() => ({ userId, manualOnly: readManualRideSourceChoice(userId) }));
+  const manualOnly = choice.userId === userId ? choice.manualOnly : readManualRideSourceChoice(userId);
 
-  // Re-read only when the account changes (sign-out, sign-in as someone else).
   useEffect(() => {
-    setManualOnlyState(readManualRideSourceChoice(userId));
-  }, [userId]);
+    if (choice.userId !== userId) {
+      setChoice({ userId, manualOnly: readManualRideSourceChoice(userId) });
+    }
+  }, [userId, choice.userId]);
 
   const setManualOnly = useCallback(
     (next: boolean) => {
-      setManualOnlyState(next);
+      setChoice({ userId, manualOnly: next });
       if (!userId) return;
       try {
         if (next) localStorage.setItem(manualRideSourceKey(userId), '1');

@@ -96,10 +96,19 @@ describe('resolveRideSourceState', () => {
 
 describe('isRideSourceSettling', () => {
   it('only polls while an import is in flight', () => {
-    expect(isRideSourceSettling({ kind: 'importing', provider: 'strava', ridesFound: null, startedAt: '' })).toBe(true);
-    expect(isRideSourceSettling({ kind: 'none' })).toBe(false);
-    expect(isRideSourceSettling({ kind: 'empty', provider: 'strava', lookbackDays: 365 })).toBe(false);
+    const running = autoImport({ status: 'RUNNING', ridesFound: null, completedAt: null });
+    expect(isRideSourceSettling({ ...BASE, connectedProviders: ['strava'], autoImport: running })).toBe(true);
+    expect(isRideSourceSettling({ ...BASE, connectedProviders: ['strava'], autoImport: autoImport() })).toBe(false);
+    expect(isRideSourceSettling(BASE)).toBe(false);
     expect(isRideSourceSettling(null)).toBe(false);
+  });
+
+  // The first ride landing is what ends the wait, whatever the row says.
+  it('stops once a ride exists even if the row still says running', () => {
+    const running = autoImport({ status: 'RUNNING', ridesFound: 1, completedAt: null });
+    expect(
+      isRideSourceSettling({ ...BASE, rideCount: 1, connectedProviders: ['garmin'], autoImport: running })
+    ).toBe(false);
   });
 });
 

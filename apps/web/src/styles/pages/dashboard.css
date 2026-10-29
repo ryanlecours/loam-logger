@@ -3277,10 +3277,6 @@
   color: var(--mint);
 }
 
-.empty-cta-divider {
-  color: var(--text-muted);
-}
-
 /* Ride source card: what a bike with no rides is waiting on. Sits in the
    hero's rides column in place of the empty list. Loam palette only; the
    partner connect buttons inside it carry their own brand colors (Guest

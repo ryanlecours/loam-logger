@@ -144,15 +144,15 @@ jest.mock('../../lib/queue/weather.queue', () => ({
   enqueueWeatherJob: jest.fn().mockResolvedValue({ enqueued: true }),
 }));
 
-// Prevent captureServerEvent calls from firing real PostHog events during
-// tests. Without this, any dev machine or CI job with POSTHOG_API_KEY set
-// would ship events to PostHog Cloud attributed to the hardcoded test
-// distinctId (`user-123`), polluting production analytics.
 const mockResolveRideSource = jest.fn();
 jest.mock('../../lib/ride-source', () => ({
   resolveRideSource: (...args: unknown[]) => mockResolveRideSource(...args),
 }));
 
+// Prevent captureServerEvent calls from firing real PostHog events during
+// tests. Without this, any dev machine or CI job with POSTHOG_API_KEY set
+// would ship events to PostHog Cloud attributed to the hardcoded test
+// distinctId (`user-123`), polluting production analytics.
 jest.mock('../../lib/posthog', () => ({
   captureServerEvent: jest.fn(),
   flushPostHog: jest.fn().mockResolvedValue(undefined),

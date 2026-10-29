@@ -80,9 +80,14 @@ export function resolveRideSourceState({
   return { kind: 'empty', provider, lookbackDays: autoImport?.lookbackDays ?? null };
 }
 
-/** Whether the state will change on its own, which is when the card polls. */
-export function isRideSourceSettling(state: RideSourceState | null): boolean {
-  return state?.kind === 'importing';
+/**
+ * Whether the data will change on its own, which is when the dashboard polls.
+ * Takes the raw field so the hook does not have to build a state it then
+ * throws away; the opt-out cannot make an import stop running.
+ */
+export function isRideSourceSettling(data: RideSourceData | null): boolean {
+  if (!data) return false;
+  return resolveRideSourceState({ ...data, manualOnly: false }).kind === 'importing';
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
