@@ -1,0 +1,61 @@
+import { useEffect } from 'react';
+import { gql, useQuery } from '@apollo/client';
+import { isRideSourceSettling, type RideSourceData } from '../utils/rideSourceState';
+
+/**
+ * Where the rider's hours come from. Selected on its own rather than added to
+ * ME_QUERY: it costs three reads on the server, and only the dashboard needs
+ * the answer.
+ */
+export const RIDE_SOURCE = gql`
+  query RideSource {
+    me {
+      id
+      rideSource {
+        connectedProviders
+        rideCount
+        autoImport {
+          provider
+          status
+          ridesFound
+          lookbackDays
+          startedAt
+          completedAt
+        }
+      }
+    }
+  }
+`;
+
+interface RideSourceQueryData {
+  // rideSource is nullable on the schema: a failed read means no card.
+  me: { id: string; rideSource: RideSourceData | null } | null;
+}
+
+/** Poll this often while an import is running, matching the import checker's cadence. */
+export const RIDE_SOURCE_POLL_MS = 30_000;
+
+export function useRideSource() {
+  const { data, loading, error, refetch, startPolling, stopPolling } = useQuery<RideSourceQueryData>(
+    RIDE_SOURCE,
+    { fetchPolicy: 'cache-and-network' }
+  );
+
+  const rideSource = data?.me?.rideSource ?? null;
+
+  // Polling follows the data: it starts when an import appears and stops once
+  // the import settles or a ride lands. Without it a rider who has just
+  // connected would stare at "importing" until a reload. It cannot poll
+  // forever against a stuck row: the server's stale sweep fails a request
+  // with no progress after an hour, and the resolver itself reports one as
+  // failed after two even if that sweep is down. Decided by the same helper
+  // the card uses so the two cannot drift.
+  const settling = isRideSourceSettling(rideSource);
+  useEffect(() => {
+    if (!settling) return;
+    startPolling(RIDE_SOURCE_POLL_MS);
+    return () => stopPolling();
+  }, [settling, startPolling, stopPolling]);
+
+  return { rideSource, loading, error, refetch };
+}

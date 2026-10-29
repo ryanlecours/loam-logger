@@ -53,6 +53,7 @@ import {
 import { createId } from '@paralleldrive/cuid2';
 import { logError, logger } from '../lib/logger';
 import { captureServerEvent, invalidateOptOutCache } from '../lib/posthog';
+import { resolveRideSource } from '../lib/ride-source';
 import { config } from '../config/env';
 import { requireBikeCreation, requireNoDowngradePending, getEffectiveTier, canCreateBike, isProTier, canSeeWeather, canSeePredictions, requirePro } from '../auth/tier-access';
 import { createCheckoutSession, createBillingPortalSession, type StripePlan, type CheckoutPlatform } from '../services/stripe.service';
@@ -7604,6 +7605,19 @@ export const resolvers = {
           startLat: null,
         },
       });
+    },
+    // Three small reads (connected providers, newest connect import, ride
+    // count) that only run when a dashboard selects the field. See
+    // lib/ride-source.ts for what each state means. A failure here must not
+    // null the User it hangs off (GraphQL would null the nearest nullable
+    // parent), so it is logged and the field resolves null: no card.
+    rideSource: async (parent: { id: string }) => {
+      try {
+        return await resolveRideSource(parent.id);
+      } catch (err) {
+        logError('User.rideSource', err);
+        return null;
+      }
     },
     // Server-side aggregation over the user's rides in a date/bike window.
     // Single groupBy + one count — constant-size response regardless of

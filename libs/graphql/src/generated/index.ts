@@ -117,6 +117,23 @@ export type AdvisorSummary = {
   text: Scalars['String']['output'];
 };
 
+export type AutoImport = {
+  __typename?: 'AutoImport';
+  completedAt?: Maybe<Scalars['String']['output']>;
+  lookbackDays: Scalars['Int']['output'];
+  provider: Scalars['String']['output'];
+  ridesFound?: Maybe<Scalars['Int']['output']>;
+  startedAt: Scalars['String']['output'];
+  status: AutoImportStatus;
+};
+
+export enum AutoImportStatus {
+  Completed = 'COMPLETED',
+  Failed = 'FAILED',
+  Pending = 'PENDING',
+  Running = 'RUNNING'
+}
+
 export type BackfillWeatherResult = {
   __typename?: 'BackfillWeatherResult';
   enqueuedCount: Scalars['Int']['output'];
@@ -1400,6 +1417,13 @@ export enum RideProvider {
   Whoop = 'WHOOP'
 }
 
+export type RideSource = {
+  __typename?: 'RideSource';
+  autoImport?: Maybe<AutoImport>;
+  connectedProviders: Array<Scalars['String']['output']>;
+  rideCount: Scalars['Int']['output'];
+};
+
 export enum RideSyncNotificationMode {
   ActionNeeded = 'ACTION_NEEDED',
   All = 'ALL',
@@ -1976,6 +2000,15 @@ export type User = {
   predictionMode?: Maybe<Scalars['String']['output']>;
   /** @deprecated Referral program removed; always null */
   referralCode?: Maybe<Scalars['String']['output']>;
+  /**
+   * Where this rider's hours come from: which ride providers are connected,
+   * the automatic import queued when one was connected, and how many rides
+   * have landed from any source. The dashboards decide from these three facts
+   * whether to ask for a ride source, say an import is running, or say the
+   * import found nothing. Resolved only when selected. Nullable so a failed
+   * read degrades to "no card" instead of nulling the whole User.
+   */
+  rideSource?: Maybe<RideSource>;
   rideSyncNotificationMode: RideSyncNotificationMode;
   rides: Array<Ride>;
   ridesMissingWeather: Scalars['Int']['output'];
@@ -2136,6 +2169,11 @@ export type MeQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type MeQuery = { __typename?: 'Query', me?: { __typename?: 'User', id: string, email: string, name?: string | null, avatarUrl?: string | null, onboardingCompleted: boolean, hasAcceptedCurrentTerms: boolean, location?: string | null, age?: number | null, role: UserRole, mustChangePassword: boolean, isFoundingRider: boolean, hoursDisplayPreference?: string | null, predictionMode?: string | null, distanceUnit?: string | null, aiFeaturesEnabled: boolean, pairedComponentMigrationSeenAt?: string | null, createdAt: string } | null };
+
+export type RideSourceQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type RideSourceQuery = { __typename?: 'Query', me?: { __typename?: 'User', id: string, rideSource?: { __typename?: 'RideSource', connectedProviders: Array<string>, rideCount: number, autoImport?: { __typename?: 'AutoImport', provider: string, status: AutoImportStatus, ridesFound?: number | null, lookbackDays: number, startedAt: string, completedAt?: string | null } | null } | null } | null };
 
 export type RideTypesQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -2859,6 +2897,60 @@ export type MeQueryHookResult = ReturnType<typeof useMeQuery>;
 export type MeLazyQueryHookResult = ReturnType<typeof useMeLazyQuery>;
 export type MeSuspenseQueryHookResult = ReturnType<typeof useMeSuspenseQuery>;
 export type MeQueryResult = Apollo.QueryResult<MeQuery, MeQueryVariables>;
+export const RideSourceDocument = gql`
+    query RideSource {
+  me {
+    id
+    rideSource {
+      connectedProviders
+      rideCount
+      autoImport {
+        provider
+        status
+        ridesFound
+        lookbackDays
+        startedAt
+        completedAt
+      }
+    }
+  }
+}
+    `;
+
+/**
+ * __useRideSourceQuery__
+ *
+ * To run a query within a React component, call `useRideSourceQuery` and pass it any options that fit your needs.
+ * When your component renders, `useRideSourceQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useRideSourceQuery({
+ *   variables: {
+ *   },
+ * });
+ */
+export function useRideSourceQuery(baseOptions?: Apollo.QueryHookOptions<RideSourceQuery, RideSourceQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<RideSourceQuery, RideSourceQueryVariables>(RideSourceDocument, options);
+      }
+export function useRideSourceLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<RideSourceQuery, RideSourceQueryVariables>) {
+          const options = {...defaultOptions, ...baseOptions}
+          return Apollo.useLazyQuery<RideSourceQuery, RideSourceQueryVariables>(RideSourceDocument, options);
+        }
+// @ts-ignore
+export function useRideSourceSuspenseQuery(baseOptions?: Apollo.SuspenseQueryHookOptions<RideSourceQuery, RideSourceQueryVariables>): Apollo.UseSuspenseQueryResult<RideSourceQuery, RideSourceQueryVariables>;
+export function useRideSourceSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<RideSourceQuery, RideSourceQueryVariables>): Apollo.UseSuspenseQueryResult<RideSourceQuery | undefined, RideSourceQueryVariables>;
+export function useRideSourceSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<RideSourceQuery, RideSourceQueryVariables>) {
+          const options = baseOptions === Apollo.skipToken ? baseOptions : {...defaultOptions, ...baseOptions}
+          return Apollo.useSuspenseQuery<RideSourceQuery, RideSourceQueryVariables>(RideSourceDocument, options);
+        }
+export type RideSourceQueryHookResult = ReturnType<typeof useRideSourceQuery>;
+export type RideSourceLazyQueryHookResult = ReturnType<typeof useRideSourceLazyQuery>;
+export type RideSourceSuspenseQueryHookResult = ReturnType<typeof useRideSourceSuspenseQuery>;
+export type RideSourceQueryResult = Apollo.QueryResult<RideSourceQuery, RideSourceQueryVariables>;
 export const RideTypesDocument = gql`
     query RideTypes {
   rideTypes
