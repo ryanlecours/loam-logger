@@ -106,7 +106,8 @@ describe('oauthState', () => {
     it('never matches the bare hex state a web start route issues', () => {
       expect(isMobileOAuthState('abc123')).toBe(false);
       expect(isMobileOAuthState('')).toBe(false);
-      // A hex string can contain an "m" only as part of nothing: hex has no m.
+      // Hex contains no "m", so a bare state can never match the prefix;
+      // even one that happens to start with "m" lacks the dot.
       expect(isMobileOAuthState('m' + '0'.repeat(47))).toBe(false);
     });
   });

@@ -29,10 +29,11 @@ jest.mock('../lib/crypto', () => ({
   encrypt: jest.fn((value: string) => `enc:${value}`),
 }));
 
+const mockCreateOAuthAttempt = jest.fn();
 const mockConsumeOAuthAttempt = jest.fn();
 const mockFindOAuthAttemptOwner = jest.fn();
 jest.mock('../lib/oauthState', () => ({
-  createOAuthAttempt: jest.fn(),
+  createOAuthAttempt: (...args: unknown[]) => mockCreateOAuthAttempt(...args),
   consumeOAuthAttempt: (...args: unknown[]) => mockConsumeOAuthAttempt(...args),
   findOAuthAttemptOwner: (...args: unknown[]) => mockFindOAuthAttemptOwner(...args),
   isMobileOAuthState: jest.requireActual('../lib/oauthState').isMobileOAuthState,
@@ -113,6 +114,40 @@ function happyPathFetch() {
       json: () => Promise.resolve({ userId: 'garmin-7' }),
     });
 }
+
+describe('POST /garmin/start (mobile)', () => {
+  const handler = getHandler('/garmin/start', 'post');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.GARMIN_AUTH_URL = 'https://garmin.example/authorize';
+    process.env.GARMIN_CLIENT_ID = 'client-id';
+    process.env.GARMIN_REDIRECT_URI = 'http://localhost:4000/auth/garmin/callback';
+  });
+
+  it('issues the state through createOAuthAttempt as a MOBILE attempt', async () => {
+    // The `m.` prefix the callback relies on is minted inside
+    // createOAuthAttempt for MOBILE attempts, so this is the whole contract.
+    mockCreateOAuthAttempt.mockResolvedValue({
+      state: 'm.issued',
+      verifier: 'verifier',
+      attempt: { id: 'attempt-1' },
+    });
+    const req = { sessionUser: { uid: 'mobile-user-1' } } as unknown as Request;
+    const res = makeRes();
+
+    await handler(req, res, jest.fn() as NextFunction);
+
+    expect(mockCreateOAuthAttempt).toHaveBeenCalledWith({
+      userId: 'mobile-user-1',
+      provider: 'GARMIN',
+      platform: 'MOBILE',
+      includeVerifier: true,
+    });
+    const { authorizeUrl } = (res.json as jest.Mock).mock.calls[0][0].data;
+    expect(new URL(authorizeUrl).searchParams.get('state')).toBe('m.issued');
+  });
+});
 
 describe('GET /garmin/callback', () => {
   const handler = getHandler('/garmin/callback', 'get');
@@ -232,23 +267,45 @@ describe('GET /garmin/callback', () => {
   });
 
   describe('mobile flow', () => {
-    it('returns at the trampoline without a prompt param', async () => {
+    const req = {
+      query: { code: 'auth-code', state: 'm.live' },
+      cookies: {},
+      user: undefined,
+      sessionUser: undefined,
+    } as unknown as Request;
+
+    beforeEach(() => {
       mockConsumeOAuthAttempt.mockResolvedValue({
         attempt: { id: 'attempt-1', userId: 'mobile-user-1' },
         verifier: 'stored-verifier',
       });
+    });
+
+    it('returns at the trampoline without a prompt param', async () => {
       mockShouldPromptForDataSource.mockResolvedValue(true);
-      const req = {
-        query: { code: 'auth-code', state: 'm.live' },
-        cookies: {},
-        user: undefined,
-        sessionUser: undefined,
-      } as unknown as Request;
 
       await handler(req, res, jest.fn() as NextFunction);
 
       expect(res.redirect).toHaveBeenCalledWith('/auth/garmin/mobile/complete?status=success');
       expect(mockFindOAuthAttemptOwner).not.toHaveBeenCalled();
+    });
+
+    it('deep-links a failed token exchange on a live attempt', async () => {
+      // isMobileFlow is set by the consume, not the prefix, so a failure
+      // after the state check still takes the mobile path.
+      mockFetch.mockReset().mockResolvedValue({ ok: false, status: 400, text: () => Promise.resolve('bad code') });
+
+      await handler(req, res, jest.fn() as NextFunction);
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        '/auth/garmin/mobile/complete?status=error&reason=token_exchange_failed'
+      );
+      expect(mockCaptureProviderConnectFailed).toHaveBeenCalledWith(
+        'mobile-user-1',
+        'garmin',
+        'token_exchange_failed',
+        { isMobileFlow: true }
+      );
     });
   });
 });

@@ -21,10 +21,11 @@ jest.mock('../lib/crypto', () => ({
   encrypt: jest.fn((value: string) => `enc:${value}`),
 }));
 
+const mockCreateOAuthAttempt = jest.fn();
 const mockConsumeOAuthAttempt = jest.fn();
 const mockFindOAuthAttemptOwner = jest.fn();
 jest.mock('../lib/oauthState', () => ({
-  createOAuthAttempt: jest.fn(),
+  createOAuthAttempt: (...args: unknown[]) => mockCreateOAuthAttempt(...args),
   consumeOAuthAttempt: (...args: unknown[]) => mockConsumeOAuthAttempt(...args),
   findOAuthAttemptOwner: (...args: unknown[]) => mockFindOAuthAttemptOwner(...args),
   isMobileOAuthState: jest.requireActual('../lib/oauthState').isMobileOAuthState,
@@ -107,6 +108,35 @@ function tokenResponse() {
     }),
   };
 }
+
+describe('POST /strava/start (mobile)', () => {
+  const handler = getHandler('/strava/start', 'post');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.STRAVA_CLIENT_ID = 'client-id';
+    process.env.STRAVA_REDIRECT_URI = 'http://localhost:4000/auth/strava/callback';
+  });
+
+  it('issues the state through createOAuthAttempt as a MOBILE attempt', async () => {
+    // The `m.` prefix the callback relies on is minted inside
+    // createOAuthAttempt for MOBILE attempts, so this is the whole contract.
+    mockCreateOAuthAttempt.mockResolvedValue({ state: 'm.issued', verifier: '', attempt: { id: 'attempt-1' } });
+    const req = { sessionUser: { uid: 'mobile-user-1' } } as unknown as Request;
+    const res = makeRes();
+
+    await handler(req, res, jest.fn() as NextFunction);
+
+    expect(mockCreateOAuthAttempt).toHaveBeenCalledWith({
+      userId: 'mobile-user-1',
+      provider: 'STRAVA',
+      platform: 'MOBILE',
+      includeVerifier: false,
+    });
+    const { authorizeUrl } = (res.json as jest.Mock).mock.calls[0][0].data;
+    expect(new URL(authorizeUrl).searchParams.get('state')).toBe('m.issued');
+  });
+});
 
 describe('GET /strava/callback', () => {
   const handler = getHandler('/strava/callback', 'get');
