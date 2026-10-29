@@ -22,8 +22,11 @@ const EMAIL_REDACTED = '[email]';
 // (/verify-email?token=) or an account deletion link
 // (/delete-account/confirm?token=). Pageviews send window.location.href, so
 // without this the token would reach PostHog while it can still be redeemed.
+// `message` is the provider failure text on /auth/error, which names the
+// account the rider tried to link; the API already records the failure as
+// provider_connect_failed, so the page URL carries nothing analytics needs.
 // Same /g caveat as above.
-const URL_TOKEN_PATTERN = /([?&#]token=)[^&#\s"']+/gi;
+const URL_TOKEN_PATTERN = /([?&#](?:token|message)=)[^&#\s"']+/gi;
 const URL_TOKEN_REDACTED = '$1[redacted]';
 
 // Autocapture records the clicked element and its ancestors, by default with

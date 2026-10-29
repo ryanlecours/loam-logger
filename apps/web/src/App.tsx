@@ -26,6 +26,7 @@ const SharedComponentHistory = lazy(() => import('./pages/SharedComponentHistory
 const ComponentHistory = lazy(() => import('./pages/ComponentHistory'));
 import Admin from './pages/Admin';
 import AuthComplete from './pages/AuthComplete';
+import AuthError from './pages/AuthError';
 import Signup from './pages/Signup';
 import ChangePassword from './pages/ChangePassword';
 import ResetPassword from './pages/ResetPassword';
@@ -106,6 +107,8 @@ function AppRoutes() {
           <Route path="/verify-email" element={<Page><VerifyEmail /></Page>} />
           <Route path="/forgot-password" element={<Page><ForgotPassword /></Page>} />
           <Route path="/auth/complete" element={<AuthComplete />} />
+          {/* The API's OAuth callbacks redirect here on failure (?message=). */}
+          <Route path="/auth/error" element={<Page><AuthError /></Page>} />
           <Route
             path="/share/:slug"
             element={
