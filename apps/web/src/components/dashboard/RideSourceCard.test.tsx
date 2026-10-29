@@ -107,10 +107,16 @@ describe('RideSourceCard', () => {
       expect(screen.getByRole('heading', { name: 'Nothing found in the last 30 days' })).toBeInTheDocument();
     });
 
-    it('does not invent a window when no import ever ran', () => {
+    // A connection that predates the connect import: nothing ever ran, so
+    // "it had no rides to import" would be a claim about an import that did
+    // not happen.
+    it('does not invent a window or an import when none ever ran', () => {
       renderCard({ kind: 'empty', provider: 'suunto', lookbackDays: null });
 
       expect(screen.getByRole('heading', { name: 'No rides have come in yet' })).toBeInTheDocument();
+      expect(screen.getByText(/no import has run for it yet/)).toBeInTheDocument();
+      expect(screen.queryByText(/had no rides to import/)).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Import rides in Settings' })).toHaveAttribute('href', '/settings');
     });
   });
 

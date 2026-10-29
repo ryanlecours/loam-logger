@@ -37,6 +37,18 @@ describe('getConnectedRideProviders', () => {
     );
   });
 
+  // The status routes fall back to the token row when the integration is
+  // revoked or missing, so a leftover token still reads as connected there.
+  // This matches them on purpose; Settings and the dashboard must agree.
+  it('treats a leftover OauthToken as connected even after the integration was revoked', async () => {
+    mockPrisma.userIntegration.findMany.mockResolvedValue([]);
+    mockPrisma.oauthToken.findMany.mockResolvedValue([{ provider: 'strava', createdAt: T0 }]);
+
+    const result = await getConnectedRideProviders(userId);
+
+    expect(result).toEqual([{ provider: 'strava', connectedAt: T0 }]);
+  });
+
   // WHOOP never writes a UserIntegration row; its token row is the connection.
   it('counts an OauthToken row as connected, without duplicating an integration', async () => {
     mockPrisma.userIntegration.findMany.mockResolvedValue([{ provider: 'STRAVA', connectedAt: T0 }]);
@@ -160,6 +172,24 @@ describe('resolveRideSource', () => {
       startedAt: T0.toISOString(),
       completedAt: done.toISOString(),
     });
+  });
+
+  // A completed row from before ridesFound was recorded has nothing to count.
+  it('reports a finished import with no recorded count as null, not zero', async () => {
+    mockPrisma.userIntegration.findMany.mockResolvedValue([{ provider: 'GARMIN', connectedAt: T0 }]);
+    mockPrisma.backfillRequest.findFirst.mockResolvedValue({
+      provider: 'garmin',
+      status: 'completed',
+      ridesFound: null,
+      createdAt: T0,
+      updatedAt: T0,
+      completedAt: T0,
+    });
+
+    const result = await resolveRideSource(userId, NOW);
+
+    expect(result.autoImport).toMatchObject({ status: 'COMPLETED', ridesFound: null });
+    expect(mockPrisma.importSession.findFirst).not.toHaveBeenCalled();
   });
 
   it('reports a failed import as failed', async () => {

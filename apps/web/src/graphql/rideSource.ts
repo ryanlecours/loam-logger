@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { gql, useQuery } from '@apollo/client';
-import type { RideSourceData } from '../utils/rideSourceState';
+import { isRideSourceSettling, resolveRideSourceState, type RideSourceData } from '../utils/rideSourceState';
 
 /**
  * Where the rider's hours come from. Selected on its own rather than added to
@@ -35,22 +35,27 @@ interface RideSourceQueryData {
 export const RIDE_SOURCE_POLL_MS = 30_000;
 
 export function useRideSource() {
+  const { data, loading, error, refetch, startPolling, stopPolling } = useQuery<RideSourceQueryData>(
+    RIDE_SOURCE,
+    { fetchPolicy: 'cache-and-network' }
+  );
+
+  const rideSource = data?.me?.rideSource ?? null;
+
   // Polling follows the data: it starts when an import appears and stops once
   // the import settles or a ride lands. Without it a rider who has just
-  // connected would stare at "importing" until a reload.
-  const [pollInterval, setPollInterval] = useState(0);
-  const result = useQuery<RideSourceQueryData>(RIDE_SOURCE, {
-    fetchPolicy: 'cache-and-network',
-    pollInterval,
-  });
-
-  const rideSource = result.data?.me?.rideSource ?? null;
-  const status = rideSource?.autoImport?.status;
-  const shouldPoll = (status === 'PENDING' || status === 'RUNNING') && rideSource?.rideCount === 0;
-
+  // connected would stare at "importing" until a reload. The server's stale
+  // sweep fails a request with no progress for an hour, so this cannot poll
+  // forever against a stuck row. Decided by the same helper the card uses so
+  // the two cannot drift.
+  const settling = isRideSourceSettling(
+    rideSource ? resolveRideSourceState({ ...rideSource, manualOnly: false }) : null
+  );
   useEffect(() => {
-    setPollInterval(shouldPoll ? RIDE_SOURCE_POLL_MS : 0);
-  }, [shouldPoll]);
+    if (!settling) return;
+    startPolling(RIDE_SOURCE_POLL_MS);
+    return () => stopPolling();
+  }, [settling, startPolling, stopPolling]);
 
-  return { rideSource, loading: result.loading, error: result.error, refetch: result.refetch };
+  return { rideSource, loading, error, refetch };
 }

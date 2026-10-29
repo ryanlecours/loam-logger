@@ -7606,14 +7606,14 @@ export const resolvers = {
         },
       });
     },
-    // Server-side aggregation over the user's rides in a date/bike window.
-    // Single groupBy + one count — constant-size response regardless of
-    // history length. Saves clients from pulling the full rides list just
-    // to bucket by condition.
     // Three small reads (connected providers, newest connect import, ride
     // count) that only run when a dashboard selects the field. See
     // lib/ride-source.ts for what each state means.
     rideSource: async (parent: { id: string }) => resolveRideSource(parent.id),
+    // Server-side aggregation over the user's rides in a date/bike window.
+    // Single groupBy + one count — constant-size response regardless of
+    // history length. Saves clients from pulling the full rides list just
+    // to bucket by condition.
     weatherBreakdown: async (
       parent: { id: string },
       { filter }: { filter?: RidesFilterInput | null },

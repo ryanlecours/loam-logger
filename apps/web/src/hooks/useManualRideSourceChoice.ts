@@ -11,22 +11,26 @@ import { manualRideSourceKey } from '../utils/rideSourceState';
  * on another device. Connecting a provider later overrides it (see
  * resolveRideSourceState), so a stale "no" never hides a real source.
  *
- * Reads lazily and writes defensively: localStorage can be unavailable in
- * private windows, and the card must still render without it.
+ * Reads synchronously on first render so a rider who opted out never sees the
+ * connect buttons flash before the card settles, and writes defensively:
+ * localStorage can be unavailable in private windows, and the card must still
+ * render without it.
  */
-export function useManualRideSourceChoice(userId: string | undefined): [boolean, (manualOnly: boolean) => void] {
-  const [manualOnly, setManualOnlyState] = useState(false);
+export function readManualRideSourceChoice(userId: string | undefined): boolean {
+  if (!userId) return false;
+  try {
+    return localStorage.getItem(manualRideSourceKey(userId)) === '1';
+  } catch {
+    return false;
+  }
+}
 
+export function useManualRideSourceChoice(userId: string | undefined): [boolean, (manualOnly: boolean) => void] {
+  const [manualOnly, setManualOnlyState] = useState(() => readManualRideSourceChoice(userId));
+
+  // Re-read only when the account changes (sign-out, sign-in as someone else).
   useEffect(() => {
-    if (!userId) {
-      setManualOnlyState(false);
-      return;
-    }
-    try {
-      setManualOnlyState(localStorage.getItem(manualRideSourceKey(userId)) === '1');
-    } catch {
-      setManualOnlyState(false);
-    }
+    setManualOnlyState(readManualRideSourceChoice(userId));
   }, [userId]);
 
   const setManualOnly = useCallback(

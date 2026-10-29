@@ -150,6 +150,22 @@ export default function Dashboard() {
     [rideSource, manualOnly]
   );
 
+  // The ride source poll is what notices the first imported ride landing. The
+  // rides list and the bikes' hours are separate queries that would otherwise
+  // keep showing the empty account until a reload, so refetch them on the
+  // transition from "no rides" to "rides". The ref makes it once per
+  // transition rather than once per poll.
+  const rideCount = rideSource?.rideCount;
+  const lastRideCountRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    const previous = lastRideCountRef.current;
+    lastRideCountRef.current = rideCount;
+    if (previous === 0 && rideCount !== undefined && rideCount > 0) {
+      refetchRides();
+      refetchBikes();
+    }
+  }, [rideCount, refetchRides, refetchBikes]);
+
   // Derived data
   const rides = ridesData?.rides ?? [];
 

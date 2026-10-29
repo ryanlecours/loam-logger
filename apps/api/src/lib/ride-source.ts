@@ -17,6 +17,7 @@
  * dashboard and Settings agree on what is connected.
  */
 
+import type { BackfillStatus } from '@prisma/client';
 import { prisma } from './prisma';
 import { AUTO_IMPORT_PERIOD } from './auto-import';
 import type { RideProvider } from './posthog';
@@ -101,7 +102,9 @@ export async function getConnectedRideProviders(userId: string): Promise<Connect
   }));
 }
 
-const STATUS_MAP: Record<string, AutoImportStatus> = {
+// Keyed on the Prisma enum so adding a BackfillStatus fails to compile here
+// rather than silently reporting the new state as something it is not.
+const STATUS_MAP: Record<BackfillStatus, AutoImportStatus> = {
   pending: 'PENDING',
   in_progress: 'RUNNING',
   completed: 'COMPLETED',
@@ -136,7 +139,7 @@ async function findAutoImport(
 
   if (request) {
     const provider = String(request.provider) as RideProvider;
-    const status = STATUS_MAP[request.status] ?? 'FAILED';
+    const status = STATUS_MAP[request.status];
 
     let ridesFound: number | null = request.status === 'completed' ? request.ridesFound : null;
     if (request.status === 'in_progress' && provider !== 'strava') {

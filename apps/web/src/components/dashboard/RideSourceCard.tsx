@@ -102,12 +102,13 @@ export function RideSourceCard({ state, onDeclineTracker, onReconsiderTracker, n
             {window ? `Nothing found in ${window}` : 'No rides have come in yet'}
           </h4>
           <p className="ride-source-body">
-            {label} is connected, but it had no rides to import. Record one or log one by hand and the hours
-            start counting.
+            {window
+              ? `${label} is connected, but it had no rides to import. Record one or log one by hand and the hours start counting.`
+              : `${label} is connected, but no import has run for it yet. Start one from Settings, or record or log a ride by hand.`}
           </p>
           <ManualPaths />
           <Link to="/settings" className="ride-source-decline">
-            Import earlier seasons in Settings
+            {window ? 'Import earlier seasons in Settings' : 'Import rides in Settings'}
           </Link>
         </section>
       );
