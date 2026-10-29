@@ -6,7 +6,13 @@ import { sendBadRequest, sendSuccess, sendUnauthorized, sendInternalError, sendT
 import { createLogger } from '../lib/logger';
 import { revokeWhoopTokenForUser } from '../lib/whoop-token';
 import { WHOOP_API_BASE, WHOOP_AUTH_URL, WHOOP_TOKEN_URL, type WhoopUserProfile } from '../types/whoop';
-import { captureProviderConnected } from '../lib/posthog';
+import {
+  captureProviderConnected,
+  captureProviderConnectStarted,
+  captureProviderConnectFailed,
+  captureProviderDisconnected,
+} from '../lib/posthog';
+import { startAutoImport } from '../lib/auto-import';
 import { checkMutationRateLimit } from '../lib/rate-limit';
 import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
@@ -25,7 +31,7 @@ const SCOPE = 'read:workout read:profile offline';
 /**
  * 1) Start OAuth — redirect user to WHOOP's consent page with state
  */
-r.get<Empty, void, Empty>('/whoop/start', async (_req: Request, res: Response) => {
+r.get<Empty, void, Empty>('/whoop/start', async (req: Request, res: Response) => {
   const CLIENT_ID = process.env.WHOOP_CLIENT_ID;
   const REDIRECT_URI = process.env.WHOOP_REDIRECT_URI;
 
@@ -59,6 +65,9 @@ r.get<Empty, void, Empty>('/whoop/start', async (_req: Request, res: Response) =
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('scope', SCOPE);
   url.searchParams.set('state', state);
+
+  const startedBy = req.sessionUser?.uid;
+  if (startedBy) captureProviderConnectStarted(startedBy, 'whoop', { isMobileFlow: false });
 
   return res.redirect(url.toString());
 });
@@ -112,6 +121,7 @@ r.post<Empty, unknown, Empty>('/whoop/start', async (req: Request, res: Response
     url.searchParams.set('state', state);
 
     log.info({ userId, attemptId: attempt.id, provider: 'WHOOP' }, 'WHOOP OAuth start (mobile)');
+    captureProviderConnectStarted(userId, 'whoop', { isMobileFlow: true });
     return sendSuccess(res, { authorizeUrl: url.toString() });
   } catch (err) {
     log.error({ err, userId }, 'Failed to create WHOOP OAuth attempt');
@@ -141,6 +151,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string; error
     function failCallback(
       reason: 'token_exchange_failed' | 'account_already_linked' | 'internal_error'
     ) {
+      captureProviderConnectFailed(userId, 'whoop', reason, { isMobileFlow });
       if (isMobileFlow) {
         return res.redirect(`/auth/whoop/mobile/complete?status=error&reason=${encodeURIComponent(reason)}`);
       }
@@ -177,11 +188,13 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string; error
         const denied = await consumeOAuthAttempt({ state, provider: 'WHOOP' });
         if (denied) {
           log.info({ userId: denied.attempt.userId, oauthError }, 'WHOOP consent declined (mobile)');
+          captureProviderConnectFailed(denied.attempt.userId, 'whoop', 'access_denied', { isMobileFlow: true });
           return res.redirect('/auth/whoop/mobile/complete?status=error&reason=access_denied');
         }
       }
 
       if (!code || !state) {
+        captureProviderConnectFailed(undefined, 'whoop', 'invalid_state', { isMobileFlow: false });
         return sendBadRequest(res, 'Invalid OAuth state');
       }
 
@@ -199,12 +212,14 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string; error
         log.debug({ hasCode: !!code, statesMatch: state === cookieState }, 'WHOOP callback state check');
 
         if (!cookieState || state !== cookieState) {
+          captureProviderConnectFailed(req.sessionUser?.uid, 'whoop', 'invalid_state', { isMobileFlow: false });
           return sendBadRequest(res, 'Invalid OAuth state');
         }
 
         // Check for authenticated user
         userId = req.user?.id || req.sessionUser?.uid;
         if (!userId) {
+          captureProviderConnectFailed(undefined, 'whoop', 'invalid_state', { isMobileFlow: false });
           return sendUnauthorized(res, 'No user - please log in first');
         }
       }
@@ -322,6 +337,10 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string; error
       });
 
       captureProviderConnected(authenticatedUserId, 'whoop', { isReconnect, isMobileFlow });
+
+      // Queue the past year of rides now, so connecting puts hours on the
+      // clock instead of waiting for the rider to find the manual Sync.
+      await startAutoImport(authenticatedUserId, 'whoop');
 
       // Mobile stops here. Everything below only picks a web redirect path, and
       // there is no cookie to clear — the attempt row was already consumed.
@@ -517,6 +536,7 @@ async function handleWhoopDisconnect(userId: string): Promise<boolean> {
     }),
   ]);
 
+  captureProviderDisconnected(userId, 'whoop');
   return revoked;
 }
 

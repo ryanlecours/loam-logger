@@ -63,6 +63,13 @@ jest.mock('../lib/logger', () => ({
   createLogger: jest.fn(() => mockLog),
 }));
 
+// The callback queues the automatic import once the tokens are stored. It is
+// its own unit (lib/auto-import.test.ts); here it only needs to be called.
+const mockStartAutoImport = jest.fn().mockResolvedValue({ status: 'queued', jobId: 'job-1' });
+jest.mock('../lib/auto-import', () => ({
+  startAutoImport: (...args: unknown[]) => mockStartAutoImport(...args),
+}));
+
 // Mock global fetch
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
@@ -333,6 +340,16 @@ describe('auth.whoop routes', () => {
       expect(mockRes.clearCookie).toHaveBeenCalledWith('ll_whoop_state', { path: '/' });
       expect(mockRes.redirect).toHaveBeenCalledWith(
         expect.stringContaining('/settings?whoop=connected')
+      );
+    });
+
+    it('queues the automatic import once the tokens are stored, before redirecting', async () => {
+      mockStartAutoImport.mockClear();
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockStartAutoImport).toHaveBeenCalledWith('user-123', 'whoop');
+      expect(mockStartAutoImport.mock.invocationCallOrder[0]).toBeLessThan(
+        (mockRes.redirect as jest.Mock).mock.invocationCallOrder[0]
       );
     });
 

@@ -12,6 +12,7 @@ import {
 import { recomputeCountersForBike, BULK_RECOMPUTE_TX_OPTIONS } from '../lib/component-counters';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 import { logError, logger } from '../lib/logger';
+import { captureRideSynced } from '../lib/posthog';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { findPotentialDuplicates, type DuplicateCandidate } from '../lib/duplicate-detector';
 import { whoopElevationLoss } from '../lib/elevation-loss';
@@ -271,6 +272,7 @@ r.get<Empty, void, Empty, { year?: string }>(
         });
 
         importedCount++;
+        captureRideSynced(userId, 'whoop', 'backfill');
       }
 
       logger.info(

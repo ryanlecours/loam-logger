@@ -26,7 +26,7 @@ import { fireRideNotifications } from '../services/notification.service';
 import { config } from '../config/env';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
 import { enqueueWeatherJob, enqueueLiftDetectionJob } from '../lib/queue';
-import { captureServerEvent } from '../lib/posthog';
+import { captureServerEvent, captureRideSynced } from '../lib/posthog';
 import type { Prisma } from '@prisma/client';
 import {
   WHOOP_API_BASE,
@@ -429,6 +429,7 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
 
   // Bust cached predictions for every bike whose hours changed.
   await invalidateBikePredictionsForBikes(userId, affectedBikeIds);
+  if (isNewRide) captureRideSynced(userId, 'strava', 'sync');
 
   logger.debug({ stravaActivityId: activity.id }, '[SyncWorker] Upserted Strava activity');
 
@@ -948,6 +949,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
   // Bust cached predictions for every bike whose hours changed. Empty (so a
   // no-op) when the credit failed and fell back: nothing was credited.
   await invalidateBikePredictionsForBikes(userId, affectedBikeIds);
+  if (!existing) captureRideSynced(userId, 'garmin', 'sync');
 
   // Update session's lastActivityReceivedAt if there's a running session
   if (runningSession) {
@@ -1158,6 +1160,7 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
 
   // Bust cached predictions for every bike whose hours changed.
   await invalidateBikePredictionsForBikes(userId, affectedBikeIds);
+  if (isNewRide) captureRideSynced(userId, 'whoop', 'sync');
 
   // Fire-and-forget notifications
   if (syncedRideId) {
@@ -1378,6 +1381,7 @@ async function upsertSuuntoActivity(
   // Bust cached predictions for every bike whose hours changed. Empty (so a
   // no-op) when the credit failed and fell back: nothing was credited.
   await invalidateBikePredictionsForBikes(userId, affectedBikeIds);
+  if (!existing) captureRideSynced(userId, 'suunto', 'sync');
 
   logger.debug({ suuntoWorkoutId: workout.workoutKey }, '[SyncWorker] Upserted Suunto workout');
 

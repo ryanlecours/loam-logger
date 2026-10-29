@@ -21,7 +21,8 @@ import { enqueueWeatherJob, enqueueLiftDetectionJob } from '../lib/queue';
 import { triggerGarminBackfillChunks } from '../services/garmin-backfill';
 import { resolveGarminPeriodRange } from '../lib/garmin-backfill-periods';
 import { garminRideKey } from '../lib/garmin-ride-key';
-import { captureServerEvent } from '../lib/posthog';
+import { captureServerEvent, captureRideSynced } from '../lib/posthog';
+import { importStravaActivities, StravaNotConnectedError } from '../lib/strava-backfill';
 import { incrementBikeComponentHours, syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import {
@@ -239,6 +240,8 @@ async function processBackfillJob(job: Job<BackfillJobData, void, BackfillJobNam
       await processGarminBackfill(userId, year);
     } else if (provider === 'suunto') {
       await processSuuntoBackfill(userId, year);
+    } else if (provider === 'strava') {
+      await processStravaBackfill(userId, year);
     } else {
       throw new Error(`Unsupported provider for backfill: ${provider}`);
     }
@@ -258,6 +261,71 @@ async function processBackfillJob(job: Job<BackfillJobData, void, BackfillJobNam
     await releaseLock(lockResult.lockKey, lockResult.lockValue);
     logger.debug({ provider, userId }, 'Backfill lock released');
   }
+}
+
+/**
+ * Process a Strava backfill for one time period: a rolling window ('365d'),
+ * 'ytd', or a calendar year. Unlike Garmin there is no replay API: the import
+ * runs to completion here, and the request is marked completed with the
+ * number of rides it touched, the same figure the rider-driven route records.
+ *
+ * Only the automatic import after a connect enqueues these today (see
+ * lib/auto-import.ts); the Settings import still calls the route directly.
+ */
+async function processStravaBackfill(userId: string, year: string): Promise<void> {
+  const currentYear = new Date().getFullYear();
+  let startDate: Date;
+  let endDate: Date;
+
+  const rollingRange = resolveGarminPeriodRange(year);
+
+  if (rollingRange) {
+    ({ startDate, endDate } = rollingRange);
+  } else if (year === 'ytd') {
+    startDate = new Date(currentYear, 0, 1);
+    endDate = new Date();
+  } else {
+    const yearNum = parseInt(year, 10);
+    if (isNaN(yearNum) || yearNum < MIN_BACKFILL_YEAR || yearNum > currentYear) {
+      throw new UnrecoverableError(
+        `Invalid year: ${year}. Must be a number between ${MIN_BACKFILL_YEAR} and ${currentYear}, "ytd", or a rolling window.`
+      );
+    }
+    startDate = new Date(yearNum, 0, 1);
+    endDate = new Date(yearNum, 11, 31, 23, 59, 59);
+  }
+
+  logger.info(
+    { userId, year, startDate: startDate.toISOString(), endDate: endDate.toISOString() },
+    '[BackfillWorker] Starting Strava backfill'
+  );
+
+  let summary;
+  try {
+    summary = await importStravaActivities({ userId, startDate, endDate, via: 'backfill' });
+  } catch (err) {
+    // A rider with no token cannot be fixed by retrying; the catch in
+    // processBackfillJob still marks the request failed.
+    if (err instanceof StravaNotConnectedError) {
+      throw new UnrecoverableError(err.message);
+    }
+    throw err;
+  }
+
+  await prisma.backfillRequest.updateMany({
+    where: { userId, provider: 'strava', year },
+    data: {
+      status: 'completed',
+      ridesFound: summary.imported + summary.updated,
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    },
+  });
+
+  logger.info(
+    { userId, year, imported: summary.imported, updated: summary.updated },
+    '[BackfillWorker] Strava backfill completed'
+  );
 }
 
 /**
@@ -508,7 +576,14 @@ async function processSuuntoBackfill(userId: string, year: string): Promise<void
   let startDate: Date;
   let endDate: Date;
 
-  if (year === 'ytd') {
+  const rollingRange = resolveGarminPeriodRange(year);
+
+  if (rollingRange) {
+    // A rolling window ('365d', the automatic import after a connect) has no
+    // checkpoint to resume from: it is re-run whole, and workoutKey dedupe
+    // keeps a second pass from storing anything twice.
+    ({ startDate, endDate } = rollingRange);
+  } else if (year === 'ytd') {
     const existingYtd = await prisma.backfillRequest.findUnique({
       where: { userId_provider_year: { userId, provider: 'suunto', year: 'ytd' } },
     });
@@ -691,6 +766,7 @@ async function processSuuntoBackfill(userId: string, year: string): Promise<void
     });
 
     importedCount++;
+    captureRideSynced(userId, 'suunto', 'backfill');
 
     // Fire-and-forget weather fetch so the ride gets enriched later without
     // blocking the backfill loop.
@@ -998,6 +1074,7 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
 
     // Bust cached predictions for every bike whose hours changed.
     await invalidateBikePredictionsForBikes(userId, affectedBikeIds);
+    if (!existingRide) captureRideSynced(userId, 'garmin', 'backfill');
 
     // Store the per-point track when the callback payload carried Activity
     // Details samples. Same best-effort contract as the sync worker.
