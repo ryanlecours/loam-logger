@@ -43,12 +43,37 @@ export function currencyMinorDigits(code: string): number {
   return ZERO_DECIMAL_CURRENCIES.has(code) ? 0 : 2;
 }
 
-/** "12.34" (or 12.34) in a currency to its integer minor units; null when unparseable. */
+/**
+ * What a rider typed ("12.34", "12,34", "1 200", 12.34) to integer minor
+ * units; null when it is not a plain amount. Strict on purpose: a mistyped
+ * amount must fail, never quietly become a different valid one. So no
+ * exponents, no signs, at most the currency's decimal places, and either a
+ * dot or a comma as the decimal separator. The LAST separator is the decimal
+ * one; earlier separators and spaces are thousands groups and must each be
+ * followed by exactly three digits. A lone "1,200" or "1.005" is therefore
+ * rejected rather than guessed at: it could be one thousand two hundred or an
+ * amount with too many decimals, and the two readings differ by a factor of
+ * a thousand. Parsed by splitting the string, not by multiplying a float.
+ */
 export function majorToMinor(value: string | number, code: string): number | null {
-  const n = typeof value === 'number' ? value : Number(String(value).replace(/[^0-9.-]/g, ''));
-  if (!Number.isFinite(n)) return null;
-  const factor = 10 ** currencyMinorDigits(code);
-  return Math.round(n * factor);
+  const digits = currencyMinorDigits(code);
+  const raw = typeof value === 'number' ? (Number.isFinite(value) ? String(value) : '') : value.trim();
+  if (!/^[0-9][0-9 .,]*$/.test(raw)) return null;
+
+  const sepIndex = Math.max(raw.lastIndexOf('.'), raw.lastIndexOf(','));
+  const wholePart = sepIndex >= 0 ? raw.slice(0, sepIndex) : raw;
+  const fraction = sepIndex >= 0 ? raw.slice(sepIndex + 1) : '';
+  // "12." is unfinished typing, not twelve.
+  if (sepIndex >= 0 && fraction === '') return null;
+
+  // Every group after the first in the whole part must be exactly three digits.
+  const groups = wholePart.split(/[ .,]/);
+  if (groups.some((g, i) => !/^[0-9]+$/.test(g) || (i > 0 && g.length !== 3))) return null;
+  const whole = groups.join('');
+  if (fraction !== '' && (!/^[0-9]+$/.test(fraction) || fraction.length > digits)) return null;
+
+  const minor = Number(whole) * 10 ** digits + (fraction === '' ? 0 : Number(fraction.padEnd(digits, '0')));
+  return Number.isSafeInteger(minor) ? minor : null;
 }
 
 /** Integer minor units to the major-unit number the rider reads. */

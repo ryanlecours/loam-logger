@@ -120,6 +120,24 @@ describe('buildMaintenanceCsv', () => {
     expect(csv).not.toContain(GARMIN_TRADEMARK_NOTICE);
   });
 
+  it('scopes every query to the exporting rider', async () => {
+    const fake = db();
+    await buildMaintenanceCsv(fake, 'u1', NOW);
+    const calls = [
+      (fake.bike.findMany as jest.Mock).mock.calls[0][0].where,
+      (fake.component.findMany as jest.Mock).mock.calls[0][0].where,
+      (fake.bikeComponentInstall.findMany as jest.Mock).mock.calls[0][0].where,
+      (fake.ride.findFirst as jest.Mock).mock.calls[0][0].where,
+    ];
+    for (const where of calls) expect(where.userId).toBe('u1');
+    // Service logs have no userId column; they are scoped through the component.
+    expect((fake.serviceLog.findMany as jest.Mock).mock.calls[0][0].where).toEqual({ component: { userId: 'u1' } });
+    // The per-bike window queries carry it too.
+    for (const call of (fake.bikeComponentInstall.findMany as jest.Mock).mock.calls) {
+      expect(call[0].where.userId).toBe('u1');
+    }
+  });
+
   it('carries the Garmin attribution when any ride came from Garmin', async () => {
     const { csv, attributed } = await buildMaintenanceCsv(db({ garmin: true }), 'u1', NOW);
     expect(attributed).toBe(true);
