@@ -4,6 +4,7 @@ import { gql, useQuery } from '@apollo/client';
 import { Bike as BikeIcon, Wrench, ArrowUpDown } from 'lucide-react';
 import { fmtDistance, fmtDuration, fmtDateTime } from '@/lib/format';
 import { getComponentLabel } from '@/constants/componentLabels';
+import { fmtPartsList } from '@/lib/money';
 import { PUBLIC_QUERY_CONTEXT } from '@/lib/publicQuery';
 import {
   GarminDerivedNote,
@@ -22,6 +23,14 @@ const SHARED_BIKE_HISTORY = gql`
       }
       serviceEvents {
         performedAt
+        # SERVICE or INSPECTION: the public page says which, as the logbook does.
+        kind
+        # Parts fitted, brand and model only. The API never sends prices or
+        # vendors to this unauthenticated page.
+        parts {
+          brand
+          model
+        }
         component {
           type
           location
@@ -61,10 +70,20 @@ type SharedComponent = {
   model: string;
 };
 
+type SharedPart = { brand: string; model: string };
+
 type TimelineEvent = {
-  kind: 'service' | 'install' | 'remove';
+  kind: 'service' | 'inspection' | 'install' | 'remove';
   occurredAt: string;
   component: SharedComponent;
+  parts?: SharedPart[];
+};
+
+const EVENT_LABEL: Record<TimelineEvent['kind'], string> = {
+  service: 'Serviced',
+  inspection: 'Inspected',
+  install: 'Installed',
+  remove: 'Removed',
 };
 
 function componentDisplay(component: SharedComponent): string {
@@ -89,11 +108,14 @@ export default function SharedBikeHistory() {
   const timeline: TimelineEvent[] = useMemo(() => {
     if (!payload) return [];
     const events: TimelineEvent[] = [
-      ...payload.serviceEvents.map((e: { performedAt: string; component: SharedComponent }) => ({
-        kind: 'service' as const,
-        occurredAt: e.performedAt,
-        component: e.component,
-      })),
+      ...payload.serviceEvents.map(
+        (e: { performedAt: string; kind?: string; parts?: SharedPart[]; component: SharedComponent }) => ({
+          kind: e.kind === 'INSPECTION' ? ('inspection' as const) : ('service' as const),
+          occurredAt: e.performedAt,
+          component: e.component,
+          parts: e.parts ?? [],
+        })
+      ),
       ...payload.installs.map((e: { eventType: string; occurredAt: string; component: SharedComponent }) => ({
         kind: e.eventType === 'REMOVED' ? ('remove' as const) : ('install' as const),
         occurredAt: e.occurredAt,
@@ -165,22 +187,21 @@ export default function SharedBikeHistory() {
                   key={`${event.kind}-${event.occurredAt}-${i}`}
                   className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3"
                 >
-                  {event.kind === 'service' ? (
+                  {event.kind === 'service' || event.kind === 'inspection' ? (
                     <Wrench className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                   ) : (
                     <ArrowUpDown className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
                   )}
                   <div className="min-w-0">
                     <p className="text-sm text-white">
-                      {event.kind === 'service'
-                        ? 'Serviced'
-                        : event.kind === 'install'
-                          ? 'Installed'
-                          : 'Removed'}
+                      {EVENT_LABEL[event.kind]}
                       {' · '}
                       {componentDisplay(event.component)}
                     </p>
-                    <p className="text-xs text-muted">{fmtDateTime(event.occurredAt)}</p>
+                    <p className="text-xs text-muted">
+                      {fmtDateTime(event.occurredAt)}
+                      {event.parts && event.parts.length > 0 ? ` · ${fmtPartsList(event.parts, 4)}` : ''}
+                    </p>
                   </div>
                 </li>
               ))}

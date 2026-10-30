@@ -26,3 +26,30 @@ export const BULK_UPDATE_BIKE_COMPONENT_INSTALLS = gql`
     }
   }
 `;
+
+// The bike page's one-line cost summary. Pro only on the server (null for
+// Free), so callers skip it for Free riders rather than asking for a null.
+// Kept out of BikeFields on purpose: GEAR_QUERY would otherwise compute every
+// bike's summary on every garage load.
+export const BIKE_COST_SUMMARY = gql`
+  query BikeCostSummary($id: ID!) {
+    bike(id: $id) {
+      id
+      costSummary {
+        currency
+        bikeMinor
+        partsMinor
+        serviceMinor
+        totalMinor
+        rideHours
+        perHourMinor
+        otherCurrencyCount
+        byYear {
+          year
+          partsMinor
+          serviceMinor
+        }
+      }
+    }
+  }
+`;

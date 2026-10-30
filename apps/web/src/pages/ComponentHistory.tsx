@@ -18,6 +18,8 @@ import { fmtDateTime, fmtDistance, fmtDuration, fmtElevation } from '@/lib/forma
 import { fmtDay } from '@/lib/componentShare';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useUserTier } from '@/hooks/useUserTier';
+import { useCostInsightViewed } from '@/hooks/useCostInsightViewed';
+import { fmtMoney, fmtPartsList, fmtPerHour } from '@/lib/money';
 import { getComponentLabel } from '@/constants/componentLabels';
 import { ProChip } from '@/components/UpgradePrompt';
 import { GarminDerivedNote } from '@/components/attribution/GarminAttribution';
@@ -107,6 +109,19 @@ type HistoryPayload = {
     lastServicedAt?: string | null;
     retiredAt?: string | null;
     replacedById?: string | null;
+    purchasePriceMinor?: number | null;
+    purchaseCurrency?: string | null;
+    purchasedFrom?: string | null;
+    /** Pro only; null for Free. */
+    costSummary?: {
+      currency: string;
+      purchaseMinor?: number | null;
+      serviceMinor: number;
+      totalMinor: number;
+      lifetimeHours: number;
+      perHourMinor?: number | null;
+      otherCurrencyCount: number;
+    } | null;
   };
   lifetime: Totals;
   sinceService: Totals;
@@ -118,6 +133,9 @@ type HistoryPayload = {
     kind: 'SERVICE' | 'INSPECTION';
     hoursAtService: number;
     serviceExtensionHours?: number | null;
+    costMinor?: number | null;
+    currency?: string | null;
+    parts?: Array<{ id: string; brand: string; model: string; priceMinor?: number | null; vendor?: string | null }>;
   }>;
   conditions: Array<{ condition: string; rideCount: number; durationSeconds: number }>;
   cumulative: Array<{
@@ -188,6 +206,8 @@ export default function ComponentHistory() {
   );
 
   const payload = data?.componentHistory;
+  // The Cost section (or its Pro chip) is a cost insight surface.
+  useCostInsightViewed('component', Boolean(payload));
 
   // The rows behind the totals, following the same Lifetime / Since last
   // service toggle. Fetched alongside the history rather than after it.
@@ -393,6 +413,68 @@ export default function ComponentHistory() {
             </div>
           )}
 
+          {/* Cost: what the part cost to buy plus what its services cost,
+              over its lifetime hours. Cream Stat Values, never tinted: money
+              is history, not status. Free sees the labels with the quiet Pro
+              chip in place of the numbers; the conditions card below already
+              holds this page's one UpsellCard slot. */}
+          <section className="bike-detail-section mb-6">
+            <h2 className="bike-detail-section-title">Cost</h2>
+            <p className="text-xs text-muted mb-3">
+              What you paid for the part plus what its services cost, over its lifetime hours.
+            </p>
+            {!isPro ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {['Paid', 'Services', 'Total', 'Per ride hour'].map((label) => (
+                  <StatTile key={label} label={label} value={<ProChip source="component-history-cost" />} />
+                ))}
+              </div>
+            ) : payload.component.costSummary ? (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <StatTile
+                    label="Paid"
+                    value={
+                      payload.component.costSummary.purchaseMinor != null
+                        ? fmtMoney(payload.component.costSummary.purchaseMinor, payload.component.costSummary.currency)
+                        : payload.component.isStock
+                          ? 'Stock'
+                          : 'Not recorded'
+                    }
+                  />
+                  <StatTile
+                    label="Services"
+                    value={fmtMoney(payload.component.costSummary.serviceMinor, payload.component.costSummary.currency)}
+                  />
+                  <StatTile
+                    label="Total"
+                    value={fmtMoney(payload.component.costSummary.totalMinor, payload.component.costSummary.currency)}
+                  />
+                  <StatTile
+                    label="Per ride hour"
+                    value={
+                      payload.component.costSummary.perHourMinor != null
+                        ? fmtPerHour(payload.component.costSummary.perHourMinor, payload.component.costSummary.currency)
+                        : 'Under 1 h ridden'
+                    }
+                  />
+                </div>
+                {payload.component.costSummary.otherCurrencyCount > 0 && (
+                  <p className="text-xs text-muted mt-1">
+                    {payload.component.costSummary.otherCurrencyCount}{' '}
+                    {payload.component.costSummary.otherCurrencyCount === 1 ? 'entry' : 'entries'} in another
+                    currency not included.
+                  </p>
+                )}
+                {payload.component.purchasedFrom && (
+                  <p className="text-xs text-muted mt-1">Bought from {payload.component.purchasedFrom}.</p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-muted">Nothing spent on record yet.</p>
+            )}
+          </section>
+
           {/* Wear over time */}
           {payload.cumulative.length > 1 && (
             <section className="bike-detail-section mb-6">
@@ -557,6 +639,16 @@ export default function ComponentHistory() {
                             `, good for ${Math.round(s.serviceExtensionHours)}h more`}
                         </span>
                       </div>
+                      {(s.costMinor != null || (s.parts?.length ?? 0) > 0) && (
+                        <div className="text-xs text-muted">
+                          {[
+                            s.costMinor != null ? fmtMoney(s.costMinor, s.currency ?? undefined) : null,
+                            (s.parts?.length ?? 0) > 0 ? fmtPartsList(s.parts ?? []) : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </div>
+                      )}
                       {s.notes && <div className="text-xs text-muted">{s.notes}</div>}
                     </div>
                     {/* A lifetime reading, which is what a mechanic writes on a
@@ -608,7 +700,7 @@ export default function ComponentHistory() {
   );
 }
 
-function StatTile({ label, value }: { label: string; value: string }) {
+function StatTile({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-border bg-surface-2 px-3 py-2">
       <div className="text-xs text-muted">{label}</div>

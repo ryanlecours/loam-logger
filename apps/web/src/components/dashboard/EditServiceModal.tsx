@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation } from '@apollo/client';
 import { Trash2, TriangleAlert, Wrench } from 'lucide-react';
 
@@ -8,28 +8,53 @@ import { UPDATE_SERVICE_LOG, DELETE_SERVICE_LOG } from '../../graphql/serviceLog
 import { BIKES } from '../../graphql/bikes';
 import { BIKE_HISTORY } from '../../graphql/bikeHistory';
 import { dateInputToIsoNoon, isoToDateInput, todayDateInput } from '../../lib/format';
+import { moneyInputText, parseMoneyInput } from '../../lib/money';
+import { useCurrency } from '../../hooks/useCurrency';
+import { ServicePartsCostFields } from './ServicePartsCostFields';
+import {
+  partsFromLog,
+  partsSumMinor,
+  partsToInput,
+  type PartDraft,
+} from '../../lib/serviceParts';
 
 export interface EditableServiceLog {
   id: string;
   performedAt: string;
   notes?: string | null;
   hoursAtService: number;
+  /** Total spent, in minor units of `currency`. Null when not recorded. */
+  costMinor?: number | null;
+  currency?: string | null;
+  /**
+   * Parts fitted. Leave undefined when the caller did not fetch them: the
+   * modal then never sends a replace-all list that would wipe them.
+   */
+  parts?: Array<{ id?: string; brand: string; model: string; priceMinor?: number | null; vendor?: string | null }>;
 }
 
 interface EditServiceModalProps {
   log: EditableServiceLog | null;
   componentLabel: string;
   bikeId?: string;
+  /** The component's own brand and model, for the replacement hint. */
+  component?: { brand?: string | null; model?: string | null } | null;
   onClose: () => void;
 }
 
-export function EditServiceModal({ log, componentLabel, bikeId, onClose }: EditServiceModalProps) {
+export function EditServiceModal({ log, componentLabel, bikeId, component, onClose }: EditServiceModalProps) {
   const [performedAt, setPerformedAt] = useState('');
   const [notes, setNotes] = useState('');
   const [hours, setHours] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  const defaultCurrency = useCurrency();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [currency, setCurrency] = useState(defaultCurrency);
+  const [costText, setCostText] = useState('');
+  const [parts, setParts] = useState<PartDraft[]>([]);
 
   const refetch = [
     { query: BIKES },
@@ -46,8 +71,16 @@ export function EditServiceModal({ log, componentLabel, bikeId, onClose }: EditS
       setHours(String(log.hoursAtService ?? 0));
       setError(null);
       setConfirmingDelete(false);
+      const cur = log.currency ?? defaultCurrency;
+      setCurrency(cur);
+      setCostText(moneyInputText(log.costMinor ?? null, cur));
+      setParts(partsFromLog(log.parts ?? [], cur));
+      // Open when there is something to see, closed otherwise.
+      setDetailsOpen(log.costMinor != null || (log.parts?.length ?? 0) > 0);
     }
-  }, [log]);
+  }, [log, defaultCurrency]);
+
+  const prefillMinor = useMemo(() => partsSumMinor(parts, currency), [parts, currency]);
 
   if (!log) return null;
 
@@ -61,6 +94,20 @@ export function EditServiceModal({ log, componentLabel, bikeId, onClose }: EditS
         setBusy(false);
         return;
       }
+
+      // Cost and parts go only when they changed. Parts are replace-all on
+      // the server, so an unchanged list is left out entirely.
+      const effectiveCost = costText.trim() === '' ? prefillMinor : parseMoneyInput(costText, currency);
+      const originalCost = log.costMinor ?? null;
+      const originalCurrency = log.currency ?? defaultCurrency;
+      const nextParts = partsToInput(parts, currency);
+      const originalParts = partsToInput(partsFromLog(log.parts ?? [], originalCurrency), originalCurrency);
+      const partsChanged = JSON.stringify(nextParts) !== JSON.stringify(originalParts);
+      const costChanged = effectiveCost !== originalCost;
+      const currencyChanged =
+        currency !== originalCurrency && (effectiveCost != null || nextParts.length > 0);
+      const canSendParts = log.parts !== undefined || nextParts.length > 0;
+
       await updateServiceLog({
         variables: {
           id: log.id,
@@ -70,6 +117,9 @@ export function EditServiceModal({ log, componentLabel, bikeId, onClose }: EditS
             // Sending hours makes them the rider's declared reading, which
             // stops following ride history. Only send them when they changed.
             ...(hoursNum !== (log.hoursAtService ?? 0) ? { hoursAtService: hoursNum } : {}),
+            // Null clears the cost.
+            ...(costChanged || currencyChanged ? { costMinor: effectiveCost, currency } : {}),
+            ...((partsChanged || currencyChanged) && canSendParts ? { parts: nextParts, currency } : {}),
           },
         },
       });
@@ -153,6 +203,20 @@ export function EditServiceModal({ log, componentLabel, bikeId, onClose }: EditS
             className="log-service-date-input w-full"
           />
         </div>
+
+        <ServicePartsCostFields
+          idPrefix="edit-service"
+          open={detailsOpen}
+          onToggle={() => setDetailsOpen((v) => !v)}
+          currency={currency}
+          onCurrencyChange={setCurrency}
+          costText={costText}
+          onCostTextChange={setCostText}
+          prefillMinor={prefillMinor}
+          parts={parts}
+          onPartsChange={setParts}
+          component={component}
+        />
 
         <div>
           <label htmlFor="edit-service-hours" className="block text-xs text-muted mb-1">

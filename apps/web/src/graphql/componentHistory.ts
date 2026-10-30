@@ -41,6 +41,19 @@ export const COMPONENT_HISTORY = gql`
         lastServicedAt
         retiredAt
         replacedById
+        purchasePriceMinor
+        purchaseCurrency
+        purchasedFrom
+        # Pro only (null for Free): purchase plus services over lifetime hours.
+        costSummary {
+          currency
+          purchaseMinor
+          serviceMinor
+          totalMinor
+          lifetimeHours
+          perHourMinor
+          otherCurrencyCount
+        }
       }
       lifetime {
         rideCount
@@ -89,6 +102,15 @@ export const COMPONENT_HISTORY = gql`
         hoursAtService
         # INSPECTION only: hours of riding it granted before the next service.
         serviceExtensionHours
+        costMinor
+        currency
+        parts {
+          id
+          brand
+          model
+          priceMinor
+          vendor
+        }
       }
       conditions {
         condition

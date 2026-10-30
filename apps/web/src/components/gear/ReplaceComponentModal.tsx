@@ -4,9 +4,12 @@ import { TriangleAlert, ArrowLeftRight } from 'lucide-react';
 import { getSlotKey } from '@loam/shared';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
+import { MoneyInput } from '../ui/MoneyInput';
 import { INSTALL_COMPONENT, GEAR_QUERY_LIGHT } from '../../graphql/gear';
 import { getComponentLabel } from '../../constants/componentLabels';
 import { dateInputToIsoNoon, todayDateInput } from '../../lib/format';
+import { parseMoneyInput } from '../../lib/money';
+import { useCurrency } from '../../hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,6 +61,11 @@ export function ReplaceComponentModal({
   const [selectedSpareId, setSelectedSpareId] = useState<string | null>(null);
   const [newBrand, setNewBrand] = useState('');
   const [newModel, setNewModel] = useState('');
+  // What the new part cost and where it came from. Both optional; the price
+  // is what makes the component's cost per ride hour honest later.
+  const currency = useCurrency();
+  const [newPrice, setNewPrice] = useState('');
+  const [newVendor, setNewVendor] = useState('');
   const [noteText, setNoteText] = useState('');
   const [installedAt, setInstalledAt] = useState(() => todayDateInput());
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +96,8 @@ export function ReplaceComponentModal({
       setSelectedSpareId(null);
       setNewBrand('');
       setNewModel('');
+      setNewPrice('');
+      setNewVendor('');
       setNoteText('');
       setInstalledAt(todayDateInput());
       setError(null);
@@ -121,6 +131,8 @@ export function ReplaceComponentModal({
           },
         });
       } else {
+        const purchasePriceMinor = parseMoneyInput(newPrice, currency);
+        const purchasedFrom = newVendor.trim();
         await installComponent({
           variables: {
             input: {
@@ -129,6 +141,10 @@ export function ReplaceComponentModal({
               newComponent: {
                 brand: newBrand.trim(),
                 model: newModel.trim(),
+                ...(purchasePriceMinor != null
+                  ? { purchasePriceMinor, purchaseCurrency: currency }
+                  : {}),
+                ...(purchasedFrom ? { purchasedFrom } : {}),
               },
               noteText: trimmedNoteText,
               installedAt: installedAtIso,
@@ -150,10 +166,13 @@ export function ReplaceComponentModal({
     activeTab,
     bikeId,
     canConfirm,
+    currency,
     installComponent,
     installedAt,
     newBrand,
     newModel,
+    newPrice,
+    newVendor,
     noteText,
     onClose,
     selectedSpareId,
@@ -317,6 +336,39 @@ export function ReplaceComponentModal({
                 placeholder="e.g. 36 Factory, Pike Ultimate"
                 className="rounded-md border border-app bg-surface px-3 py-2 text-sm text-app placeholder:text-muted focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest"
               />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="flex flex-col gap-1">
+                <label
+                  htmlFor="replace-price"
+                  className="text-xs font-medium text-muted"
+                >
+                  Price paid (optional)
+                </label>
+                <MoneyInput
+                  id="replace-price"
+                  value={newPrice}
+                  onChange={setNewPrice}
+                  currency={currency}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label
+                  htmlFor="replace-vendor"
+                  className="text-xs font-medium text-muted"
+                >
+                  Where bought (optional)
+                </label>
+                <input
+                  id="replace-vendor"
+                  type="text"
+                  value={newVendor}
+                  onChange={(e) => setNewVendor(e.target.value)}
+                  placeholder="Shop, site, a mate"
+                  maxLength={120}
+                  className="rounded-md border border-app bg-surface px-3 py-2 text-sm text-app placeholder:text-muted focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest"
+                />
+              </div>
             </div>
           </div>
         )}

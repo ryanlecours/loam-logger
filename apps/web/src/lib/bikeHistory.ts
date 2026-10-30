@@ -19,12 +19,41 @@ export type HistoryRide = {
   location?: string | null;
 };
 
+export type HistoryServicePart = {
+  id?: string;
+  brand: string;
+  model: string;
+  priceMinor?: number | null;
+  vendor?: string | null;
+};
+
 export type HistoryServiceEvent = {
   id: string;
   performedAt: string;
   notes?: string | null;
   hoursAtService: number;
+  /** SERVICE = work performed; INSPECTION = checked and found good. */
+  kind?: 'SERVICE' | 'INSPECTION';
+  /** Total spent, in minor units of `currency`. Null when not recorded. */
+  costMinor?: number | null;
+  currency?: string | null;
+  parts?: HistoryServicePart[];
   component: ComponentLite;
+};
+
+export type BikeCostYear = { year: number; partsMinor: number; serviceMinor: number };
+
+/** Bike.costSummary: Pro only, null for Free. Money is history, never status. */
+export type BikeCostSummary = {
+  currency: string;
+  bikeMinor?: number | null;
+  partsMinor: number;
+  serviceMinor: number;
+  totalMinor: number;
+  rideHours: number;
+  perHourMinor?: number | null;
+  otherCurrencyCount: number;
+  byYear: BikeCostYear[];
 };
 
 export type HistoryInstallEvent = {
@@ -42,6 +71,7 @@ export type HistoryBike = {
   year?: number | null;
   /** Providers whose rides contributed to this history; drives export attribution. */
   contributingSources?: string[];
+  costSummary?: BikeCostSummary | null;
 };
 
 export type HistoryTotals = {
@@ -51,6 +81,10 @@ export type HistoryTotals = {
   totalElevationGainMeters: number;
   serviceEventCount: number;
   installEventCount: number;
+  /** Plain sum of the listed services' costs; null when none recorded one. */
+  spendMinor?: number | null;
+  spendCurrency?: string | null;
+  spendOtherCurrencyCount?: number;
 };
 
 export type TimelineItem =

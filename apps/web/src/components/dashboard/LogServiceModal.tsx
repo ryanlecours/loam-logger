@@ -3,12 +3,20 @@ import { useMutation } from '@apollo/client';
 import { Check, Wrench, TriangleAlert } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
-import { LOG_COMPONENT_SERVICE } from '../../graphql/logComponentService';
+import { LOG_SERVICE } from '../../graphql/logService';
 import { BIKES } from '../../graphql/bikes';
 import { formatComponentLabel, getBikeName } from '../../utils/formatters';
-import { todayDateInput } from '../../lib/format';
+import { dateInputToIsoNoon, todayDateInput } from '../../lib/format';
+import { useCurrency } from '../../hooks/useCurrency';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import { StatusDot } from './StatusDot';
+import { ServicePartsCostFields } from './ServicePartsCostFields';
+import {
+  partsSumMinor,
+  partsToInput,
+  type PartDraft,
+} from '../../lib/serviceParts';
+import { parseMoneyInput } from '../../lib/money';
 
 interface LogServiceModalProps {
   isOpen: boolean;
@@ -16,6 +24,9 @@ interface LogServiceModalProps {
   bike: BikeWithPredictions | null;
   defaultComponentId?: string | null;
 }
+
+const MULTI_SELECT_HINT =
+  'Select one part to record parts and cost, or add them later from the logbook.';
 
 export function LogServiceModal({
   isOpen,
@@ -30,11 +41,19 @@ export function LogServiceModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [logService] = useMutation(LOG_COMPONENT_SERVICE, {
+  // Parts and cost. Entered only when exactly one component is selected: one
+  // total across several parts cannot be attributed honestly.
+  const defaultCurrency = useCurrency();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [currency, setCurrency] = useState(defaultCurrency);
+  const [costText, setCostText] = useState('');
+  const [parts, setParts] = useState<PartDraft[]>([]);
+
+  const [logService] = useMutation(LOG_SERVICE, {
     refetchQueries: [{ query: BIKES }],
   });
 
-  // Sync selection and reset date when modal opens or defaultComponentId changes
+  // Sync selection and reset the form when the modal opens or defaultComponentId changes
   useEffect(() => {
     if (isOpen) {
       // Set initial selection based on defaultComponentId
@@ -42,8 +61,12 @@ export function LogServiceModal({
       setSelectedIds(initialSelection);
       setServiceDate(todayDateInput());
       setError(null);
+      setDetailsOpen(false);
+      setCurrency(defaultCurrency);
+      setCostText('');
+      setParts([]);
     }
-  }, [isOpen, defaultComponentId]);
+  }, [isOpen, defaultComponentId, defaultCurrency]);
 
   const toggleComponent = useCallback((componentId: string) => {
     setSelectedIds((prev) => {
@@ -57,16 +80,55 @@ export function LogServiceModal({
     });
   }, []);
 
+  const components = useMemo(
+    () => bike?.predictions?.components ?? [],
+    [bike?.predictions?.components]
+  );
+
+  const singleSelected = selectedIds.size === 1;
+  const selectedComponent = useMemo(() => {
+    if (!singleSelected) return null;
+    const [id] = Array.from(selectedIds);
+    return components.find((c) => c.componentId === id) ?? null;
+  }, [components, selectedIds, singleSelected]);
+
+  const prefillMinor = useMemo(() => partsSumMinor(parts, currency), [parts, currency]);
+
   const handleSubmit = useCallback(async () => {
     if (selectedIds.size === 0) return;
 
     setIsSubmitting(true);
     setError(null);
     try {
+      // Parts and cost ride along only on a single selection; several
+      // components get the plain date-only log, as before.
+      const partsInput = singleSelected ? partsToInput(parts, currency) : [];
+      const costMinor = singleSelected
+        ? costText.trim() === ''
+          ? prefillMinor
+          : parseMoneyInput(costText, currency)
+        : null;
+      const details =
+        singleSelected && (costMinor != null || partsInput.length > 0)
+          ? {
+              ...(costMinor != null ? { costMinor } : {}),
+              currency,
+              ...(partsInput.length > 0 ? { parts: partsInput } : {}),
+            }
+          : {};
+
       // Log service for each selected component with the selected date
       await Promise.all(
         Array.from(selectedIds).map((id) =>
-          logService({ variables: { id, performedAt: serviceDate } })
+          logService({
+            variables: {
+              input: {
+                componentId: id,
+                performedAt: dateInputToIsoNoon(serviceDate),
+                ...details,
+              },
+            },
+          })
         )
       );
       onClose();
@@ -76,17 +138,12 @@ export function LogServiceModal({
     } finally {
       setIsSubmitting(false);
     }
-  }, [selectedIds, serviceDate, logService, onClose]);
+  }, [selectedIds, singleSelected, parts, currency, costText, prefillMinor, serviceDate, logService, onClose]);
 
   const handleClose = useCallback(() => {
     setError(null);
     onClose();
   }, [onClose]);
-
-  const components = useMemo(
-    () => bike?.predictions?.components ?? [],
-    [bike?.predictions?.components]
-  );
 
   if (!bike) return null;
 
@@ -133,6 +190,22 @@ export function LogServiceModal({
             className="log-service-date-input"
           />
         </div>
+
+        <ServicePartsCostFields
+          idPrefix="log-service"
+          open={detailsOpen}
+          onToggle={() => setDetailsOpen((v) => !v)}
+          disabled={!singleSelected}
+          disabledHint={MULTI_SELECT_HINT}
+          currency={currency}
+          onCurrencyChange={setCurrency}
+          costText={costText}
+          onCostTextChange={setCostText}
+          prefillMinor={prefillMinor}
+          parts={parts}
+          onPartsChange={setParts}
+          component={selectedComponent}
+        />
 
         <div>
           <p className="log-service-hint">

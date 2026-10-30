@@ -3,6 +3,7 @@ import { GARMIN_INSIGHT_ATTRIBUTION, GARMIN_TRADEMARK_NOTICE } from '@loam/share
 
 import { getComponentLabel } from '@/constants/componentLabels';
 import { fmtDateTime, fmtDistance, fmtDuration, fmtElevation } from '@/lib/format';
+import { fmtMoney, fmtPartsList, fmtPerHour } from '@/lib/money';
 import { bikeName } from '@/lib/bikeHistory';
 import type {
   ComponentLite,
@@ -41,6 +42,12 @@ const styles = StyleSheet.create({
   attributionFooter: { position: 'absolute', left: 36, right: 36, bottom: 4, fontSize: 6, color: MUTED },
   trademark: { marginTop: 1 },
   truncatedNote: { fontSize: 9, color: MUTED, marginBottom: 8, fontStyle: 'italic' },
+  // What the bike has cost: a quiet block under the totals, same ink as the
+  // rest. Money is history here, not status.
+  costBlock: { marginBottom: 16, padding: 8, border: `1pt solid ${BORDER}` },
+  costTitle: { fontSize: 8, color: SAGE, fontFamily: 'Helvetica-Bold', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 },
+  costRow: { flexDirection: 'row' },
+  costYear: { fontSize: 8, color: MUTED, marginTop: 2 },
 });
 
 type YearGroup = {
@@ -59,6 +66,11 @@ type Props = {
   distanceUnit: 'mi' | 'km';
   timeframeLabel: string;
   truncated: boolean;
+  /**
+   * Whether money appears at all: the Spend total, per-row costs and the
+   * cost summary. Parts fitted are listed either way. Defaults to on.
+   */
+  includeCosts?: boolean;
   /** URL (typically served from /public) for the Loam Logger logo. */
   logoSrc?: string;
 };
@@ -70,8 +82,21 @@ function componentText(c: ComponentLite): string {
   return brandModel ? `${label}${loc} — ${brandModel}` : `${label}${loc}`;
 }
 
-export function BikeHistoryPdf({ bike, totals, yearGroups, distanceUnit, timeframeLabel, truncated, logoSrc }: Props) {
+export function BikeHistoryPdf({
+  bike,
+  totals,
+  yearGroups,
+  distanceUnit,
+  timeframeLabel,
+  truncated,
+  includeCosts = true,
+  logoSrc,
+}: Props) {
   const generated = new Date();
+  // Pro only on the server (null for Free), so the block renders exactly
+  // when the rider is Pro and asked for costs.
+  const costSummary = includeCosts ? bike.costSummary ?? null : null;
+  const showSpend = includeCosts && totals.spendMinor != null;
   // Only attribute when Garmin actually contributed — the guidelines forbid
   // the mark and the attribution where its data is absent.
   const hasGarmin = bike.contributingSources?.includes('garmin') ?? false;
@@ -106,7 +131,60 @@ export function BikeHistoryPdf({ bike, totals, yearGroups, distanceUnit, timefra
             <Text style={styles.totalLabel}>Service & installs</Text>
             <Text style={styles.totalValue}>{(totals.serviceEventCount + totals.installEventCount).toLocaleString()}</Text>
           </View>
+          {showSpend && (
+            <View style={styles.total}>
+              <Text style={styles.totalLabel}>Spend</Text>
+              <Text style={styles.totalValue}>
+                {fmtMoney(totals.spendMinor ?? 0, totals.spendCurrency ?? undefined)}
+              </Text>
+            </View>
+          )}
         </View>
+
+        {costSummary && (
+          <View style={styles.costBlock} wrap={false}>
+            <Text style={styles.costTitle}>What this bike has cost</Text>
+            <View style={styles.costRow}>
+              {costSummary.bikeMinor != null && (
+                <View style={styles.total}>
+                  <Text style={styles.totalLabel}>Bike</Text>
+                  <Text style={styles.totalValue}>{fmtMoney(costSummary.bikeMinor, costSummary.currency)}</Text>
+                </View>
+              )}
+              <View style={styles.total}>
+                <Text style={styles.totalLabel}>Parts</Text>
+                <Text style={styles.totalValue}>{fmtMoney(costSummary.partsMinor, costSummary.currency)}</Text>
+              </View>
+              <View style={styles.total}>
+                <Text style={styles.totalLabel}>Service</Text>
+                <Text style={styles.totalValue}>{fmtMoney(costSummary.serviceMinor, costSummary.currency)}</Text>
+              </View>
+              <View style={styles.total}>
+                <Text style={styles.totalLabel}>Total</Text>
+                <Text style={styles.totalValue}>{fmtMoney(costSummary.totalMinor, costSummary.currency)}</Text>
+              </View>
+              <View style={styles.total}>
+                <Text style={styles.totalLabel}>Per ride hour</Text>
+                <Text style={styles.totalValue}>
+                  {costSummary.perHourMinor != null
+                    ? fmtPerHour(costSummary.perHourMinor, costSummary.currency)
+                    : 'Under 1 h'}
+                </Text>
+              </View>
+            </View>
+            {costSummary.byYear.map((y) => (
+              <Text key={y.year} style={styles.costYear}>
+                {y.year} · parts {fmtMoney(y.partsMinor, costSummary.currency)} · service{' '}
+                {fmtMoney(y.serviceMinor, costSummary.currency)}
+              </Text>
+            ))}
+            {costSummary.otherCurrencyCount > 0 && (
+              <Text style={styles.costYear}>
+                {costSummary.otherCurrencyCount} in another currency not included.
+              </Text>
+            )}
+          </View>
+        )}
 
         {truncated && (
           <Text style={styles.truncatedNote}>
@@ -138,14 +216,21 @@ export function BikeHistoryPdf({ bike, totals, yearGroups, distanceUnit, timefra
                 }
                 if (item.kind === 'service') {
                   const s = item.service;
+                  const parts = s.parts ?? [];
+                  const meta = [
+                    `${fmtDateTime(s.performedAt)} · ${s.hoursAtService.toFixed(0)} hrs`,
+                    includeCosts && s.costMinor != null ? fmtMoney(s.costMinor, s.currency ?? undefined) : null,
+                    parts.length > 0 ? fmtPartsList(parts, 4) : null,
+                    s.notes || null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ');
                   return (
                     <View key={`s:${s.id}`} style={styles.row} wrap={false}>
-                      <Text style={styles.rowIcon}>SERVICE</Text>
+                      <Text style={styles.rowIcon}>{s.kind === 'INSPECTION' ? 'INSPECT' : 'SERVICE'}</Text>
                       <View style={styles.rowTitle}>
                         <Text>{componentText(s.component)}</Text>
-                        <Text style={styles.rowMeta}>
-                          {fmtDateTime(s.performedAt)} · {s.hoursAtService.toFixed(0)} hrs{s.notes ? ` · ${s.notes}` : ''}
-                        </Text>
+                        <Text style={styles.rowMeta}>{meta}</Text>
                       </View>
                     </View>
                   );

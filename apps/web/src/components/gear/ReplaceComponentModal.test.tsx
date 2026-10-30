@@ -6,6 +6,8 @@ import { ReplaceComponentModal } from './ReplaceComponentModal';
 const mockInstallComponent = vi.fn();
 vi.mock('@apollo/client', () => ({
   useMutation: vi.fn(() => [mockInstallComponent, { loading: false }]),
+  // useCurrency reads the cached `me` query for the rider's currency.
+  useQuery: () => ({ data: { me: { currency: null } }, loading: false }),
   gql: vi.fn((strings: TemplateStringsArray) => strings[0]),
 }));
 
@@ -64,6 +66,11 @@ vi.mock('../ui/Button', () => ({
 // Mock getSlotKey
 vi.mock('@loam/shared', () => ({
   getSlotKey: (type: string, location: string) => `${type}_${location}`,
+  DEFAULT_CURRENCY: 'USD',
+  isSupportedCurrency: (code: unknown) => code === 'USD',
+  currencyMinorDigits: () => 2,
+  majorToMinor: (v: string | number) => Math.round(Number(v) * 100),
+  minorToMajor: (minor: number) => minor / 100,
 }));
 
 // Mock getComponentLabel

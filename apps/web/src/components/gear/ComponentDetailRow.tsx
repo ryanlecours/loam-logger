@@ -382,6 +382,7 @@ export function ComponentDetailRow({
           log={editingService}
           componentLabel={fullLabel}
           bikeId={component.bikeId ?? undefined}
+          component={component}
           onClose={() => setEditingService(null)}
         />
       )}

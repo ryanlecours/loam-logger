@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { isHoursOnlyComponent } from "@loam/shared";
 import { Button } from "./ui";
+import { MoneyInput } from "./ui/MoneyInput";
 import type { SpareFormState, SpareComponentType } from "@/models/BikeComponents";
 import { getComponentLabel } from "@/constants/componentLabels";
 
@@ -49,9 +50,19 @@ type SpareFormProps = {
   onClose: () => void;
   /** 'spare' for spare components (default), 'bike' for bike-attached components */
   mode?: 'spare' | 'bike';
+  /** ISO 4217 code the price is entered in (the rider's Settings currency). */
+  currency?: string;
 };
 
-export function SpareComponentForm({ initial, submitting, error, onSubmit, onClose, mode = 'spare' }: SpareFormProps) {
+export function SpareComponentForm({
+  initial,
+  submitting,
+  error,
+  onSubmit,
+  onClose,
+  mode = 'spare',
+  currency = 'USD',
+}: SpareFormProps) {
   const [form, setForm] = useState<SpareFormState>(initial);
 
   const isBikeComponent = mode === 'bike';
@@ -145,6 +156,29 @@ export function SpareComponentForm({ initial, submitting, error, onSubmit, onClo
           value={form.model}
           onChange={(e) => setField('model', e.target.value)}
         />
+      </div>
+      {/* Optional. A stock part's price is the bike's; a bought part's price
+          is what later makes its cost per ride hour honest. */}
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="flex flex-col gap-2 text-sm">
+          <span className="label-muted">Price paid</span>
+          <MoneyInput
+            value={form.purchasePrice ?? ''}
+            onChange={(v) => setField('purchasePrice', v)}
+            currency={currency}
+            aria-label="Price paid"
+          />
+        </label>
+        <label className="flex flex-col gap-2 text-sm">
+          <span className="label-muted">Where bought</span>
+          <input
+            className="max-w-auto rounded-lg border border-app bg-app px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]"
+            placeholder="Shop, site, a mate"
+            maxLength={120}
+            value={form.purchasedFrom ?? ''}
+            onChange={(e) => setField('purchasedFrom', e.target.value)}
+          />
+        </label>
       </div>
       <label className="flex flex-col gap-2 text-sm">
         <span className="label-muted">Notes</span>

@@ -169,6 +169,9 @@ export interface SpareFormState {
   hoursUsed: string;
   serviceDueAtHours: string;
   location?: 'FRONT' | 'REAR';
+  /** Price paid, as typed, in major units of the rider's currency. */
+  purchasePrice?: string;
+  purchasedFrom?: string;
 };
 
 export const BIKE_COMPONENT_SECTIONS: ReadonlyArray<{
