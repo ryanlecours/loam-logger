@@ -26,6 +26,7 @@ export const ME_QUERY = gql`
       hoursDisplayPreference
       predictionMode
       distanceUnit
+      currency
       analyticsOptOut
       aiFeaturesEnabled
       pairedComponentMigrationSeenAt

@@ -7,6 +7,8 @@ import BikeHistory from './BikeHistory';
 // a shared mock fn so each test can assert the bulk-update payload.
 const mockBulkUpdate = vi.fn();
 const mockUseQuery = vi.fn();
+vi.mock('@/lib/posthog', () => ({ posthog: { capture: vi.fn() } }));
+
 vi.mock('@apollo/client', () => ({
   useQuery: (...args: unknown[]) => mockUseQuery(...args),
   useMutation: vi.fn(() => [mockBulkUpdate, { loading: false }]),
@@ -469,5 +471,104 @@ describe('BikeHistory multi-select', () => {
         await screen.findByText('Failed to update install dates.')
       ).toBeInTheDocument();
     });
+  });
+});
+
+// Cost is history, not status: the row and the Spent chip show the figures the
+// rider typed, and the Pro insight (per hour) sits behind the quiet chip.
+describe('BikeHistory parts and cost', () => {
+  const service = {
+    id: 'svc-1',
+    performedAt: '2024-06-15T12:00:00.000Z',
+    notes: 'Lower leg service',
+    hoursAtService: 48,
+    kind: 'SERVICE',
+    costMinor: 8500,
+    currency: 'USD',
+    parts: [
+      { id: 'p1', brand: 'Fox', model: 'Seal kit', priceMinor: 3850, vendor: null },
+      { id: 'p2', brand: '', model: '20wt oil', priceMinor: null, vendor: null },
+      { id: 'p3', brand: 'Fox', model: 'Foam rings', priceMinor: null, vendor: null },
+    ],
+    component: { id: 'c-F', type: 'FORK', location: 'NONE', brand: 'Fox', model: '36' },
+  };
+  const inspection = {
+    ...service,
+    id: 'svc-2',
+    performedAt: '2024-07-15T12:00:00.000Z',
+    kind: 'INSPECTION',
+    costMinor: null,
+    parts: [],
+    notes: null,
+  };
+  const withCosts = (bikeExtra: Record<string, unknown> = {}) => ({
+    bikeHistory: {
+      ...fixture.bikeHistory,
+      bike: { ...fixture.bikeHistory.bike, ...bikeExtra },
+      serviceEvents: [service, inspection],
+      totals: {
+        ...fixture.bikeHistory.totals,
+        serviceEventCount: 2,
+        spendMinor: 8500,
+        spendCurrency: 'USD',
+        spendOtherCurrencyCount: 1,
+      },
+    },
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('labels the kind and lists cost and parts on the row, truncating with +n', () => {
+    mockUseQuery.mockReturnValue({ data: withCosts(), loading: false, error: undefined });
+    renderPage('/gear/bike-1/history?show=service');
+
+    const serviceRow = screen.getByRole('button', { name: /Edit service for/ });
+    expect(serviceRow).toHaveTextContent('Service ·');
+    expect(serviceRow).toHaveTextContent('$85.00');
+    expect(serviceRow).toHaveTextContent('Fox Seal kit, 20wt oil +1');
+    expect(serviceRow).toHaveTextContent('Lower leg service');
+
+    expect(screen.getByRole('button', { name: /Edit inspected for/ })).toHaveTextContent('Inspected ·');
+  });
+
+  it('shows the free Spent sum with the Pro chip when the rider is Free', () => {
+    mockUseQuery.mockReturnValue({ data: withCosts(), loading: false, error: undefined });
+    renderPage();
+
+    const chip = screen.getByText('Spent').parentElement as HTMLElement;
+    expect(chip).toHaveTextContent('$85.00');
+    expect(within(chip).getByRole('button', { name: /Included with Pro/ })).toBeInTheDocument();
+    expect(screen.getByText(/1 service in another currency not included/)).toBeInTheDocument();
+  });
+
+  it('adds the per-hour line for Pro from the bike cost summary', () => {
+    mockUseQuery.mockImplementation((doc: unknown) =>
+      String(doc).includes('me')
+        ? { data: { me: { subscriptionTier: 'PRO', role: 'USER', isFoundingRider: false } }, loading: false }
+        : {
+            data: withCosts({
+              costSummary: {
+                currency: 'USD',
+                bikeMinor: null,
+                partsMinor: 0,
+                serviceMinor: 8500,
+                totalMinor: 8500,
+                rideHours: 40,
+                perHourMinor: 212.5,
+                otherCurrencyCount: 0,
+                byYear: [],
+              },
+            }),
+            loading: false,
+            error: undefined,
+          }
+    );
+    renderPage();
+
+    const chip = screen.getByText('Spent').parentElement as HTMLElement;
+    expect(chip).toHaveTextContent('$2.13 / h');
+    expect(within(chip).queryByRole('button')).not.toBeInTheDocument();
   });
 });

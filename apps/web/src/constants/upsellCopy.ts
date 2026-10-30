@@ -42,6 +42,11 @@ export const UPSELL_COPY = {
     body: 'Pro imports every season you’ve ever logged. More history means smarter service estimates.',
     dismissKey: 'upsell-dismissed-import-depth',
   },
+  costPerHour: {
+    title: 'What does this bike cost to ride?',
+    body: 'Pro turns your parts and service spend into cost per ride hour, per part and per bike.',
+    dismissKey: 'upsell-dismissed-cost-per-hour',
+  },
 } as const;
 
 export type UpsellFeature = keyof typeof UPSELL_COPY;

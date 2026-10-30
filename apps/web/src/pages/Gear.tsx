@@ -18,6 +18,8 @@ import {
 import { SpareComponentForm } from '@/components/SpareComponentForm';
 import { UpsellCard } from '@/components/UpgradePrompt';
 import { useUserTier } from '@/hooks/useUserTier';
+import { useCurrency } from '@/hooks/useCurrency';
+import { isMoneyInputValid, moneyInputText, parseMoneyInput } from '@/lib/money';
 import { BikeOverviewCard, SpareComponentsPanel, GearPageHeader } from '@/components/gear';
 import { LogServiceModal } from '@/components/dashboard';
 import type { BikePredictionSummary } from '@/types/prediction';
@@ -34,6 +36,9 @@ type ComponentDto = {
   hoursUsed?: number | null;
   serviceDueAtHours?: number | null;
   location?: string | null;
+  purchasePriceMinor?: number | null;
+  purchaseCurrency?: string | null;
+  purchasedFrom?: string | null;
 };
 
 type BikeDto = {
@@ -172,6 +177,7 @@ export default function Gear() {
   const spareComponents = data?.spareComponents ?? [];
 
   const { canAddBike } = useUserTier();
+  const currency = useCurrency();
   const [showBikeModal, setShowBikeModal] = useState(false);
   const [showBikeLimitUpsell, setShowBikeLimitUpsell] = useState(false);
   const [spareModal, setSpareModal] = useState<SpareModalState | null>(null);
@@ -287,6 +293,27 @@ export default function Gear() {
     const serviceValue = form.serviceDueAtHours.trim();
     const serviceDue = serviceValue === '' ? null : Number(serviceValue);
 
+    // Purchase fields: on an edit, null clears; on an add, blank is omitted.
+    // The currency always travels with the amount, and an edited price keeps
+    // the currency it was recorded in.
+    const priceCurrency = form.purchaseCurrency ?? currency;
+    if (!isMoneyInputValid(form.purchasePrice ?? '', priceCurrency)) {
+      setSpareFormError('Price paid must be a plain amount, like 38.50.');
+      return;
+    }
+    const purchasePriceMinor = parseMoneyInput(form.purchasePrice ?? '', priceCurrency);
+    const purchasedFrom = (form.purchasedFrom ?? '').trim();
+    const purchase = form.id
+      ? {
+          purchasePriceMinor,
+          purchaseCurrency: purchasePriceMinor != null ? priceCurrency : null,
+          purchasedFrom: purchasedFrom || null,
+        }
+      : {
+          ...(purchasePriceMinor != null ? { purchasePriceMinor, purchaseCurrency: priceCurrency } : {}),
+          ...(purchasedFrom ? { purchasedFrom } : {}),
+        };
+
     const base = {
       type: form.type,
       brand: form.isStock ? undefined : form.brand || undefined,
@@ -296,6 +323,7 @@ export default function Gear() {
       hoursUsed: Number.isNaN(hoursUsed) ? undefined : hoursUsed,
       serviceDueAtHours: Number.isNaN(serviceDue ?? 0) ? undefined : serviceDue,
       location: form.location ?? undefined,
+      ...purchase,
     };
 
     let failed = false;
@@ -344,8 +372,14 @@ export default function Gear() {
       serviceDueAtHours:
         currentSpare.serviceDueAtHours != null ? String(currentSpare.serviceDueAtHours) : '',
       location: (currentSpare.location as 'FRONT' | 'REAR' | undefined) ?? undefined,
+      purchasePrice: moneyInputText(
+        currentSpare.purchasePriceMinor ?? null,
+        currentSpare.purchaseCurrency ?? currency
+      ),
+      purchaseCurrency: currentSpare.purchaseCurrency ?? undefined,
+      purchasedFrom: currentSpare.purchasedFrom ?? '',
     };
-  }, [currentSpare]);
+  }, [currentSpare, currency]);
 
   const handleDeleteSpare = async (id: string) => {
     const confirmed = window.confirm('Remove this spare component?');
@@ -489,6 +523,7 @@ export default function Gear() {
           <SpareComponentForm
             key={currentSpare?.id ?? 'new'}
             initial={initialSpareState}
+            currency={currency}
             submitting={busySpare || deleteComponentState.loading}
             error={spareFormError}
             onSubmit={handleSpareSubmit}

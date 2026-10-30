@@ -7,6 +7,15 @@ export const UPDATE_SERVICE_LOG = gql`
       performedAt
       notes
       hoursAtService
+      costMinor
+      currency
+      parts {
+        id
+        brand
+        model
+        priceMinor
+        vendor
+      }
     }
   }
 `;

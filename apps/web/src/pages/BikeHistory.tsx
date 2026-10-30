@@ -1,7 +1,7 @@
 import { Suspense, lazy, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { gql, useMutation, useQuery } from '@apollo/client';
-import { ArrowLeft, Bike as BikeIcon, CalendarClock, Check, FileDown, Link2, MinusCircle, PlusCircle, TriangleAlert, Wrench } from 'lucide-react';
+import { ArrowLeft, Bike as BikeIcon, CalendarClock, Check, Eye, FileDown, Link2, MinusCircle, PlusCircle, TriangleAlert, Wrench } from 'lucide-react';
 
 import { BIKE_HISTORY } from '@/graphql/bikeHistory';
 import { BULK_UPDATE_BIKE_COMPONENT_INSTALLS } from '@/graphql/bike';
@@ -24,7 +24,9 @@ import {
   type Timeframe,
 } from '@/lib/bikeHistory';
 import { useUserTier } from '@/hooks/useUserTier';
-import { UpsellCard } from '@/components/UpgradePrompt';
+import { useCostInsightViewed } from '@/hooks/useCostInsightViewed';
+import { fmtMoney, fmtPartsList, fmtPerHour } from '@/lib/money';
+import { ProChip, UpsellCard } from '@/components/UpgradePrompt';
 import { GarminDerivedNote } from '@/components/attribution/GarminAttribution';
 
 const BikeHistoryPdfButton = lazy(() => import('@/components/history/BikeHistoryPdfButton'));
@@ -51,7 +53,7 @@ function componentDisplay(component: ComponentLite): string {
 export default function BikeHistory() {
   const { bikeId } = useParams<{ bikeId: string }>();
   const { distanceUnit } = usePreferences();
-  const { isPro } = useUserTier();
+  const { isPro, tier } = useUserTier();
   const [timeframe, setTimeframe] = useState<Timeframe>('all');
   const [showPdfUpsell, setShowPdfUpsell] = useState(false);
   // The rides filter lives in the URL (`?show=service` hides rides), so the
@@ -74,6 +76,7 @@ export default function BikeHistory() {
   const [editingService, setEditingService] = useState<{
     log: EditableServiceLog;
     componentLabel: string;
+    component: ComponentLite;
   } | null>(null);
   const [editingInstall, setEditingInstall] = useState<{
     event: EditableInstallEvent;
@@ -174,6 +177,8 @@ export default function BikeHistory() {
   };
 
   const payload = data?.bikeHistory;
+  // The Spent chip (or its Pro chip) is a cost insight surface.
+  useCostInsightViewed('history', Boolean(payload));
 
   // Base install-row ids that have BOTH an INSTALLED and a REMOVED event in
   // the timeline. Used so the delete-confirmation copy on EditInstallModal
@@ -290,6 +295,7 @@ export default function BikeHistory() {
                     distanceUnit={distanceUnit}
                     timeframeLabel={TIMEFRAME_LABEL[timeframe]}
                     truncated={payload.truncated}
+                    tier={tier}
                   />
                 </Suspense>
               ) : (
@@ -310,12 +316,40 @@ export default function BikeHistory() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
             <TotalChip label="Rides" value={payload.totals.rideCount.toLocaleString()} />
             <TotalChip label="Distance" value={fmtDistance(payload.totals.totalDistanceMeters, distanceUnit)} />
             <TotalChip label="Elevation" value={fmtElevation(payload.totals.totalElevationGainMeters, distanceUnit)} />
             <TotalChip label="Service events" value={(payload.totals.serviceEventCount + payload.totals.installEventCount).toLocaleString()} />
+            {/* The sum is free (a record of what the rider typed); the
+                per-hour line is the Pro insight. Money is cream, never on
+                the ramp. */}
+            <TotalChip
+              label="Spent"
+              value={
+                payload.totals.spendMinor != null
+                  ? fmtMoney(payload.totals.spendMinor, payload.totals.spendCurrency ?? undefined)
+                  : 'None yet'
+              }
+              sub={
+                isPro ? (
+                  payload.bike.costSummary?.perHourMinor != null ? (
+                    <span className="text-xs text-muted">
+                      {fmtPerHour(payload.bike.costSummary.perHourMinor, payload.bike.costSummary.currency)}
+                    </span>
+                  ) : null
+                ) : (
+                  <ProChip source="history-cost-per-hour" />
+                )
+              }
+            />
           </div>
+          {(payload.totals.spendOtherCurrencyCount ?? 0) > 0 && (
+            <div className="text-xs text-muted -mt-2 mb-4">
+              {payload.totals.spendOtherCurrencyCount} service
+              {payload.totals.spendOtherCurrencyCount === 1 ? '' : 's'} in another currency not included in Spent.
+            </div>
+          )}
 
           {/* The totals above and the ride timeline below are derived from the
               contributing providers' ride data, so any Garmin-sourced rides
@@ -389,8 +423,12 @@ export default function BikeHistory() {
                                   performedAt: item.service.performedAt,
                                   notes: item.service.notes,
                                   hoursAtService: item.service.hoursAtService,
+                                  costMinor: item.service.costMinor,
+                                  currency: item.service.currency,
+                                  parts: item.service.parts ?? [],
                                 },
                                 componentLabel: componentDisplay(item.service.component),
+                                component: item.service.component,
                               })
                             }
                           />
@@ -412,6 +450,7 @@ export default function BikeHistory() {
           log={editingService.log}
           componentLabel={editingService.componentLabel}
           bikeId={bikeId}
+          component={editingService.component}
           onClose={() => setEditingService(null)}
         />
       )}
@@ -527,11 +566,12 @@ function BulkDateModal({
   );
 }
 
-function TotalChip({ label, value }: { label: string; value: string }) {
+function TotalChip({ label, value, sub }: { label: string; value: string; sub?: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-border bg-surface-2 px-3 py-2">
       <div className="text-xs text-muted">{label}</div>
       <div className="text-sm font-semibold">{value}</div>
+      {sub != null && <div className="mt-0.5 leading-none">{sub}</div>}
     </div>
   );
 }
@@ -565,23 +605,34 @@ function RideRow({ ride, distanceUnit }: { ride: HistoryRide; distanceUnit: 'mi'
 }
 
 function ServiceRow({ service, onEdit }: { service: HistoryServiceEvent; onEdit?: () => void }) {
+  const inspected = service.kind === 'INSPECTION';
+  const kindLabel = inspected ? 'Inspected' : 'Service';
+  const Icon = inspected ? Eye : Wrench;
+  const parts = service.parts ?? [];
+  // Money and parts sit in the meta line in the body ink: a record of what
+  // was done and spent, never a status.
+  const meta = [
+    `${fmtDateTime(service.performedAt)} · ${service.hoursAtService.toFixed(0)} hrs`,
+    service.costMinor != null ? fmtMoney(service.costMinor, service.currency ?? undefined) : null,
+    parts.length > 0 ? fmtPartsList(parts) : null,
+    service.notes || null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <button
       type="button"
       onClick={onEdit}
       className="w-full text-left flex items-baseline justify-between gap-3 hover:bg-surface-2/40 rounded px-1 -mx-1 py-0.5"
-      aria-label={`Edit service for ${componentDisplay(service.component)}`}
+      aria-label={`Edit ${kindLabel.toLowerCase()} for ${componentDisplay(service.component)}`}
     >
       <div className="min-w-0">
         <div className="text-sm font-medium truncate">
-          Service · {componentDisplay(service.component)}
+          {kindLabel} · {componentDisplay(service.component)}
         </div>
-        <div className="text-xs text-muted truncate">
-          {fmtDateTime(service.performedAt)} · {service.hoursAtService.toFixed(0)} hrs
-          {service.notes ? ` · ${service.notes}` : ''}
-        </div>
+        <div className="text-xs text-muted truncate">{meta}</div>
       </div>
-      <Wrench size={14} className="text-muted shrink-0" />
+      <Icon size={14} className="text-muted shrink-0" />
     </button>
   );
 }

@@ -18,6 +18,9 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { StatusPill } from '@/components/dashboard/StatusPill';
 import { LogServiceModal } from '@/components/dashboard/LogServiceModal';
+import { BikeCostLine } from '@/components/gear/BikeCostLine';
+import { useCurrency } from '@/hooks/useCurrency';
+import { isMoneyInputValid, moneyInputText, parseMoneyInput } from '@/lib/money';
 import { UpdateAcquisitionModal } from '@/components/gear/UpdateAcquisitionModal';
 import { ComponentDetailRow } from '@/components/gear/ComponentDetailRow';
 import { ReplaceComponentModal } from '@/components/gear/ReplaceComponentModal';
@@ -56,6 +59,9 @@ type ComponentDto = {
   baselineConfidence?: string | null;
   lastServicedAt?: string | null;
   location?: string | null;
+  purchasePriceMinor?: number | null;
+  purchaseCurrency?: string | null;
+  purchasedFrom?: string | null;
 };
 
 type BikeServicePreferenceDto = {
@@ -102,6 +108,7 @@ type BikeDto = {
 export default function BikeDetail() {
   const { bikeId } = useParams<{ bikeId: string }>();
   const navigate = useNavigate();
+  const currency = useCurrency();
 
   const { data, loading, error } = useQuery<{ bikes: BikeDto[]; spareComponents: ComponentDto[] }>(GEAR_QUERY, {
     fetchPolicy: 'cache-first',
@@ -238,6 +245,16 @@ export default function BikeDetail() {
     const serviceValue = form.serviceDueAtHours.trim();
     const serviceDue = serviceValue === '' ? null : Number(serviceValue);
 
+    // Null clears a purchase field the rider blanked; the API leaves omitted
+    // fields alone, so these are always sent on an edit. The currency travels
+    // with the amount, and an edited price keeps the one it was recorded in.
+    const priceCurrency = form.purchaseCurrency ?? currency;
+    if (!isMoneyInputValid(form.purchasePrice ?? '', priceCurrency)) {
+      setComponentFormError('Price paid must be a plain amount, like 38.50.');
+      return;
+    }
+    const purchasePriceMinor = parseMoneyInput(form.purchasePrice ?? '', priceCurrency);
+    const purchasedFrom = (form.purchasedFrom ?? '').trim();
     const payload = {
       brand: form.brand || undefined,
       model: form.model || undefined,
@@ -246,6 +263,9 @@ export default function BikeDetail() {
       hoursUsed: Number.isNaN(hoursUsed) ? undefined : hoursUsed,
       serviceDueAtHours: Number.isNaN(serviceDue ?? 0) ? undefined : serviceDue,
       location: form.location ?? undefined,
+      purchasePriceMinor,
+      purchaseCurrency: purchasePriceMinor != null ? priceCurrency : null,
+      purchasedFrom: purchasedFrom || null,
     };
 
     try {
@@ -381,6 +401,10 @@ export default function BikeDetail() {
               )}
             </div>
           </div>
+
+          {/* Cost is history, not status: cream text beside the pill, never
+              on the ramp. Pro only; Free sees the quiet chip. */}
+          {bikeId && <BikeCostLine bikeId={bikeId} />}
 
           <div className="bike-detail-hero-actions">
             <Button variant="primary" size="sm" onClick={() => setServiceModalOpen(true)}>
@@ -670,7 +694,14 @@ export default function BikeDetail() {
               hoursUsed: String(editingComponent.hoursUsed ?? ''),
               serviceDueAtHours: String(editingComponent.serviceDueAtHours ?? ''),
               location: (editingComponent.location as 'FRONT' | 'REAR' | undefined) ?? undefined,
+              purchasePrice: moneyInputText(
+                editingComponent.purchasePriceMinor ?? null,
+                editingComponent.purchaseCurrency ?? currency
+              ),
+              purchaseCurrency: editingComponent.purchaseCurrency ?? undefined,
+              purchasedFrom: editingComponent.purchasedFrom ?? '',
             }}
+            currency={currency}
             onSubmit={handleComponentSubmit}
             onClose={() => {
               setEditingComponent(null);

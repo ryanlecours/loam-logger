@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { useMutation } from '@apollo/client';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
+import { DEFAULT_CURRENCY, SUPPORTED_CURRENCIES, isSupportedCurrency } from '@loam/shared';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { usePreferences } from '../../../hooks/usePreferences';
 import { useUserTier } from '../../../hooks/useUserTier';
@@ -68,6 +69,23 @@ export default function PreferencesSection() {
   // without a refetch, same as the analytics opt-out toggle.
   const aiEnabled = Boolean(user?.aiFeaturesEnabled);
   const [aiSaving, setAiSaving] = useState(false);
+
+  // Currency new costs are entered in. USD until the rider picks one; the
+  // mutation returns `currency`, so the cached user updates without a refetch.
+  const currencyValue = isSupportedCurrency(user?.currency) ? user.currency : DEFAULT_CURRENCY;
+  const [currencySaving, setCurrencySaving] = useState(false);
+
+  const handleCurrencyChange = async (code: string) => {
+    setCurrencySaving(true);
+    try {
+      await updateUserPreferences({ variables: { input: { currency: code } } });
+      toast.success('Saved', { id: 'settings-preference-currency', description: 'Currency' });
+    } catch {
+      toast.error('Could not save', { id: 'settings-preference-currency', description: 'Currency' });
+    } finally {
+      setCurrencySaving(false);
+    }
+  };
 
   const handleAiToggle = async () => {
     setAiSaving(true);
@@ -246,6 +264,33 @@ export default function PreferencesSection() {
         </div>
         <p className="text-xs text-muted">
           Distances are always stored in miles. This preference only affects how they are displayed and entered.
+        </p>
+      </div>
+
+      <div className="panel-spaced">
+        <div>
+          <p className="label-section">Money</p>
+          <h2 className="title-section">Currency</h2>
+        </div>
+        <label className="flex flex-col gap-2 text-sm">
+          <span className="label-muted">Costs are entered in</span>
+          <select
+            aria-label="Currency"
+            value={currencyValue}
+            onChange={(e) => handleCurrencyChange(e.target.value)}
+            disabled={currencySaving}
+            className="max-w-xs rounded-lg border border-app bg-app px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))] disabled:opacity-60"
+          >
+            {SUPPORTED_CURRENCIES.map((code) => (
+              <option key={code} value={code}>
+                {code}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="text-xs text-muted">
+          New service costs and part prices start in this currency. Amounts already recorded keep
+          theirs, and totals never convert between currencies.
         </p>
       </div>
 

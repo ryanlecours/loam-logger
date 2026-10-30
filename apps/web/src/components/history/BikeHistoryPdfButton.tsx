@@ -5,6 +5,7 @@ import { FileDown } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { bikeName, slugify } from '@/lib/bikeHistory';
 import { todayDateInput } from '@/lib/format';
+import { posthog } from '@/lib/posthog';
 import type {
   HistoryBike,
   HistoryInstallEvent,
@@ -30,19 +31,29 @@ type Props = {
   distanceUnit: 'mi' | 'km';
   timeframeLabel: string;
   truncated: boolean;
+  /** The rider's tier, for the export event. */
+  tier?: string;
 };
 
 const LOGO_SRC = '/loamLoggerLogo_512x512.png';
 
 export default function BikeHistoryPdfButton(props: Props) {
   const [generating, setGenerating] = useState(false);
+  // The same document serves insurance and resale; a buyer need not see
+  // what was spent, so costs can be left out. On by default.
+  const [includeCosts, setIncludeCosts] = useState(true);
 
   const handleExport = async () => {
     setGenerating(true);
     try {
       const blob = await pdf(
-        <BikeHistoryPdf {...props} logoSrc={LOGO_SRC} />
+        <BikeHistoryPdf {...props} includeCosts={includeCosts} logoSrc={LOGO_SRC} />
       ).toBlob();
+      posthog.capture('maintenance_exported', {
+        format: 'pdf',
+        include_costs: includeCosts,
+        tier: props.tier ?? 'PRO',
+      });
       const url = URL.createObjectURL(blob);
       const dateStr = todayDateInput();
       const filename = `${slugify(bikeName(props.bike))}-history-${dateStr}.pdf`;
@@ -59,9 +70,20 @@ export default function BikeHistoryPdfButton(props: Props) {
   };
 
   return (
-    <Button variant="outline" size="sm" onClick={handleExport} disabled={generating}>
-      <FileDown size={14} className="icon-left" />
-      {generating ? 'Generating…' : 'Export PDF'}
-    </Button>
+    <div className="flex items-center gap-2">
+      <label className="flex select-none items-center gap-1.5 text-xs text-muted">
+        <input
+          type="checkbox"
+          checked={includeCosts}
+          onChange={(e) => setIncludeCosts(e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-app bg-surface accent-accent"
+        />
+        Include what you spent
+      </label>
+      <Button variant="outline" size="sm" onClick={handleExport} disabled={generating}>
+        <FileDown size={14} className="icon-left" />
+        {generating ? 'Generating…' : 'Export PDF'}
+      </Button>
+    </div>
   );
 }

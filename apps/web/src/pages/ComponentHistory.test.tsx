@@ -4,6 +4,8 @@ import { MemoryRouter } from 'react-router';
 import ComponentHistory from './ComponentHistory';
 
 const mockUseQuery = vi.fn();
+vi.mock('@/lib/posthog', () => ({ posthog: { capture: vi.fn() } }));
+
 vi.mock('@apollo/client', () => ({
   useQuery: (...args: unknown[]) => mockUseQuery(...args),
   gql: vi.fn((strings: TemplateStringsArray) => strings[0]),
@@ -289,7 +291,9 @@ describe('ComponentHistory', () => {
     mockIsPro.mockReturnValue(false);
     renderPage();
 
-    expect(screen.getByTestId('pro-chip')).toBeInTheDocument();
+    // Scoped to this section: the Cost section above wears its own chips.
+    const conditions = screen.getByRole('heading', { name: 'Conditions ridden in' }).parentElement as HTMLElement;
+    expect(within(conditions).getByTestId('pro-chip')).toBeInTheDocument();
     expect(screen.queryByTestId('conditions-chart')).not.toBeInTheDocument();
     // The stock weather upsell copy claims conditions feed service estimates,
     // which is false today — it must not appear next to the note above.
@@ -444,5 +448,78 @@ describe('ComponentHistory', () => {
     renderPage();
     expect(screen.getByText('No rides recorded yet.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Show more rides' })).not.toBeInTheDocument();
+  });
+});
+
+// The Cost section: Pro reads the numbers, Free reads the labels with the
+// quiet Pro chip in place of each figure. Never "$0" for Free.
+describe('ComponentHistory cost', () => {
+  const costSummary = {
+    currency: 'USD',
+    purchaseMinor: 120000,
+    serviceMinor: 14000,
+    totalMinor: 134000,
+    lifetimeHours: 312,
+    perHourMinor: 429.5,
+    otherCurrencyCount: 0,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setRides();
+    mockUseQuery.mockImplementation((doc: unknown) =>
+      String(doc).includes('componentHistoryRides') ? ridesResult : historyResult
+    );
+  });
+
+  it('shows paid, services, total and per hour for Pro', () => {
+    mockIsPro.mockReturnValue(true);
+    setPayload({
+      component: { ...BASE.component, purchasePriceMinor: 120000, purchaseCurrency: 'USD', purchasedFrom: 'Worldwide Cyclery', costSummary },
+      serviceEvents: [
+        { ...BASE.serviceEvents[0], costMinor: 14000, currency: 'USD', parts: [{ id: 'p1', brand: 'Fox', model: 'Seal kit', priceMinor: 3850, vendor: null }] },
+      ],
+    });
+    renderPage();
+
+    const section = screen.getByRole('heading', { name: 'Cost' }).parentElement as HTMLElement;
+    expect(within(section).getByText('$1,200.00')).toBeInTheDocument();
+    expect(within(section).getByText('$140.00')).toBeInTheDocument();
+    expect(within(section).getByText('$1,340.00')).toBeInTheDocument();
+    expect(within(section).getByText('$4.30 / h')).toBeInTheDocument();
+    expect(within(section).getByText(/Bought from Worldwide Cyclery/)).toBeInTheDocument();
+    expect(within(section).queryByTestId('pro-chip')).not.toBeInTheDocument();
+
+    // The logbook row carries what was spent and fitted.
+    const logbook = screen.getByRole('heading', { name: 'Logbook' }).parentElement as HTMLElement;
+    expect(within(logbook).getByText('$140.00 · Fox Seal kit')).toBeInTheDocument();
+  });
+
+  it('shows the labels with Pro chips in place of the numbers for Free', () => {
+    mockIsPro.mockReturnValue(false);
+    setPayload({ component: { ...BASE.component, costSummary: null } });
+    renderPage();
+
+    const section = screen.getByRole('heading', { name: 'Cost' }).parentElement as HTMLElement;
+    expect(within(section).getByText('Paid')).toBeInTheDocument();
+    expect(within(section).getByText('Per ride hour')).toBeInTheDocument();
+    expect(within(section).getAllByTestId('pro-chip')).toHaveLength(4);
+    expect(within(section).queryByText(/\$0/)).not.toBeInTheDocument();
+  });
+
+  it('says a stock part was not bought separately and a fresh one has no per-hour figure', () => {
+    mockIsPro.mockReturnValue(true);
+    setPayload({
+      component: {
+        ...BASE.component,
+        isStock: true,
+        costSummary: { ...costSummary, purchaseMinor: null, totalMinor: 14000, perHourMinor: null },
+      },
+    });
+    renderPage();
+
+    const section = screen.getByRole('heading', { name: 'Cost' }).parentElement as HTMLElement;
+    expect(within(section).getByText('Stock')).toBeInTheDocument();
+    expect(within(section).getByText('Under 1 h ridden')).toBeInTheDocument();
   });
 });

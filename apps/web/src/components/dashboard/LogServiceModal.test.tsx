@@ -103,8 +103,11 @@ const createBike = (
 });
 
 // Match the component's behavior — local date, not UTC. See todayDateInput.
-import { todayDateInput } from '../../lib/format';
+import { dateInputToIsoNoon, todayDateInput } from '../../lib/format';
 const getTodayDate = () => todayDateInput();
+
+// The input of the nth logService call.
+const sentInput = (n = 0) => mockLogService.mock.calls[n][0].variables.input;
 
 describe('LogServiceModal', () => {
   const components = [
@@ -124,10 +127,15 @@ describe('LogServiceModal', () => {
     mockLogService.mockReset();
     mockLogService.mockResolvedValue({
       data: {
-        logComponentService: {
-          id: 'comp-1',
-          hoursUsed: 0,
-          updatedAt: new Date().toISOString(),
+        logService: {
+          id: 'log-1',
+          performedAt: new Date().toISOString(),
+          kind: 'SERVICE',
+          hoursAtService: 0,
+          notes: null,
+          costMinor: null,
+          currency: null,
+          parts: [],
         },
       },
     });
@@ -284,7 +292,7 @@ describe('LogServiceModal', () => {
       });
     });
 
-    it('passes performedAt (serviceDate) to mutation', async () => {
+    it('passes performedAt (serviceDate) to logService, anchored at local noon', async () => {
       render(<LogServiceModal {...defaultProps} />);
 
       // Change date
@@ -299,10 +307,11 @@ describe('LogServiceModal', () => {
       const submitButton = screen.getByText('Log Service (1)');
       fireEvent.click(submitButton);
 
-      await waitFor(() => {
-        expect(mockLogService).toHaveBeenCalledWith({
-          variables: { id: 'comp-1', performedAt: '2024-01-15' },
-        });
+      await waitFor(() => expect(mockLogService).toHaveBeenCalled());
+      // Date only: no cost, currency or parts ride along when none was typed.
+      expect(sentInput()).toEqual({
+        componentId: 'comp-1',
+        performedAt: dateInputToIsoNoon('2024-01-15'),
       });
     });
 
@@ -408,5 +417,154 @@ describe('LogServiceModal', () => {
 
       expect(checkbox).toHaveAttribute('aria-checked', 'true');
     });
+  });
+});
+
+describe('LogServiceModal parts and cost', () => {
+  const MULTI_HINT = 'Select one part to record parts and cost, or add them later from the logbook.';
+  const components = [
+    createComponent('comp-1', { componentType: 'FORK', brand: 'Fox', model: '36 Factory' }),
+    createComponent('comp-2', { componentType: 'SHOCK' }),
+  ];
+  const props = { isOpen: true, onClose: vi.fn(), bike: createBike(components), defaultComponentId: null };
+
+  const openDetails = () => fireEvent.click(screen.getByRole('button', { name: /Parts and cost/ }));
+  const addPart = (n: number, brand: string, model: string, price = '') => {
+    fireEvent.click(screen.getByText('Add part'));
+    fireEvent.change(screen.getByLabelText(`Part ${n} brand`), { target: { value: brand } });
+    fireEvent.change(screen.getByLabelText(`Part ${n} model`), { target: { value: model } });
+    if (price) fireEvent.change(screen.getByLabelText(`Part ${n} price`), { target: { value: price } });
+  };
+
+  beforeEach(() => {
+    mockLogService.mockReset().mockResolvedValue({ data: { logService: { id: 'log-1' } } });
+  });
+
+  it('is closed and inert until exactly one component is selected', () => {
+    render(<LogServiceModal {...props} />);
+    const toggle = screen.getByRole('button', { name: /Parts and cost/ });
+
+    // Nothing selected: inert, with the hint.
+    expect(toggle).toBeDisabled();
+    expect(screen.getByText(MULTI_HINT)).toBeInTheDocument();
+
+    // One selected: usable, still collapsed so the two-tap path stays two taps.
+    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+    expect(toggle).toBeEnabled();
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(MULTI_HINT)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Cost')).not.toBeInTheDocument();
+
+    // Two selected: inert again, one total across two parts cannot be attributed.
+    fireEvent.click(screen.getAllByRole('checkbox')[1]);
+    expect(toggle).toBeDisabled();
+    expect(screen.getByText(MULTI_HINT)).toBeInTheDocument();
+  });
+
+  it('sends the cost, the currency and the parts with a single selection', async () => {
+    render(<LogServiceModal {...props} defaultComponentId="comp-1" />);
+    openDetails();
+
+    fireEvent.change(screen.getByLabelText('Cost'), { target: { value: '140' } });
+    addPart(1, 'Fox', 'Seal kit', '38.50');
+    addPart(2, '', '20wt oil');
+    fireEvent.change(screen.getByLabelText('Part 2 where bought'), { target: { value: 'Local shop' } });
+    fireEvent.click(screen.getByText('Log Service (1)'));
+
+    await waitFor(() => expect(mockLogService).toHaveBeenCalledTimes(1));
+    expect(sentInput()).toMatchObject({
+      componentId: 'comp-1',
+      costMinor: 14000,
+      currency: 'USD',
+      parts: [
+        { brand: 'Fox', model: 'Seal kit', priceMinor: 3850 },
+        { brand: '', model: '20wt oil', vendor: 'Local shop' },
+      ],
+    });
+  });
+
+  it('pre-fills the total from priced parts and keeps it editable', async () => {
+    render(<LogServiceModal {...props} defaultComponentId="comp-1" />);
+    openDetails();
+
+    addPart(1, 'Fox', 'Seal kit', '38.50');
+    addPart(2, 'Fox', 'Foam rings', '11.50');
+    expect((screen.getByLabelText('Cost') as HTMLInputElement).value).toBe('50.00');
+
+    fireEvent.change(screen.getByLabelText('Cost'), { target: { value: '85' } });
+    fireEvent.click(screen.getByText('Log Service (1)'));
+
+    await waitFor(() => expect(mockLogService).toHaveBeenCalled());
+    expect(sentInput()).toMatchObject({ costMinor: 8500 });
+  });
+
+  it('lets the rider pick another currency for this log', async () => {
+    render(<LogServiceModal {...props} defaultComponentId="comp-1" />);
+    openDetails();
+
+    fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'CAD' } });
+    fireEvent.change(screen.getByLabelText('Cost'), { target: { value: '12' } });
+    fireEvent.click(screen.getByText('Log Service (1)'));
+
+    await waitFor(() => expect(mockLogService).toHaveBeenCalled());
+    expect(sentInput()).toMatchObject({ costMinor: 1200, currency: 'CAD' });
+  });
+
+  it('points at Replace when a part names a different component', () => {
+    render(<LogServiceModal {...props} defaultComponentId="comp-1" />);
+    openDetails();
+    const hint = /Replacing the whole part\? Use Replace so its hours start at zero/;
+
+    addPart(1, 'Fox', 'Seal kit');
+    expect(screen.queryByText(hint)).not.toBeInTheDocument();
+
+    addPart(2, 'RockShox', 'Zeb Ultimate');
+    expect(screen.getByText(hint)).toBeInTheDocument();
+  });
+
+  it('refuses an ambiguous amount instead of guessing at it', () => {
+    render(<LogServiceModal {...props} defaultComponentId="comp-1" />);
+    openDetails();
+
+    // "1,200" could be one thousand two hundred or an amount with too many
+    // decimals; the strict parser rejects it and the log waits.
+    fireEvent.change(screen.getByLabelText('Cost'), { target: { value: '1,200' } });
+    expect(screen.getByText('Enter a plain amount, like 38.50.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Cost')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Log Service (1)')).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Cost'), { target: { value: '1200' } });
+    expect(screen.queryByText('Enter a plain amount, like 38.50.')).not.toBeInTheDocument();
+    expect(screen.getByText('Log Service (1)')).toBeEnabled();
+
+    // The same for a part's price.
+    addPart(1, 'Fox', 'Seal kit', '12.');
+    expect(screen.getByText('Log Service (1)')).toBeDisabled();
+  });
+
+  it('drops a part without a model and caps the list at twenty', () => {
+    render(<LogServiceModal {...props} defaultComponentId="comp-1" />);
+    openDetails();
+
+    for (let i = 0; i < 20; i += 1) fireEvent.click(screen.getByText('Add part'));
+    expect(screen.getByText('Add part')).toBeDisabled();
+    expect(screen.getByText('20/20')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Remove part 20'));
+    expect(screen.getByText('Add part')).toBeEnabled();
+  });
+
+  it('sends plain date-only logs when several components are selected', async () => {
+    render(<LogServiceModal {...props} defaultComponentId="comp-1" />);
+    openDetails();
+    fireEvent.change(screen.getByLabelText('Cost'), { target: { value: '140' } });
+
+    fireEvent.click(screen.getAllByRole('checkbox')[1]);
+    fireEvent.click(screen.getByText('Log Service (2)'));
+
+    await waitFor(() => expect(mockLogService).toHaveBeenCalledTimes(2));
+    expect(sentInput(0)).not.toHaveProperty('costMinor');
+    expect(sentInput(0)).not.toHaveProperty('parts');
+    expect(sentInput(1)).not.toHaveProperty('costMinor');
   });
 });
