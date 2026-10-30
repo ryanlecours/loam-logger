@@ -444,6 +444,11 @@ describe('POST /duplicates/auto-merge', () => {
     await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
     expect(mockExecuteRaw).not.toHaveBeenCalled();
+    expect(mockTxRideFindMany).toHaveBeenCalledWith({
+      where: { userId: 'user-123', isDuplicate: true },
+      select: { bikeId: true },
+      distinct: ['bikeId'],
+    });
     expect(mockRecomputeCountersForBikes).toHaveBeenCalledWith(expect.anything(), {
       userId: 'user-123',
       bikeIds: ['bike-1', 'bike-2'],
@@ -456,6 +461,23 @@ describe('POST /duplicates/auto-merge', () => {
     );
     expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-1');
     expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-2');
+  });
+
+  // The recompute runs inside the merge transaction, so its failure rolls the
+  // deletes back with it: report the error and bust nothing.
+  it('returns 500 and busts no cache when the recompute fails', async () => {
+    const dup: DupRow = {
+      ...makeRide({ id: 's-dup', bikeId: 'bike-1', stravaActivityId: 'S-1' }),
+      duplicateOfId: 'g-primary',
+    };
+    const primary: TestRide = makeRide({ id: 'g-primary', bikeId: 'bike-1', garminActivityId: 'G-1' });
+    seedRides('garmin', [dup], [primary]);
+    mockRecomputeCountersForBikes.mockRejectedValueOnce(new Error('tx timeout'));
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(mockRes.status).toHaveBeenCalledWith(500);
+    expect(mockInvalidateBikePrediction).not.toHaveBeenCalled();
   });
 
   it('labels the success message with the correct provider name', async () => {
@@ -628,7 +650,7 @@ describe('POST /duplicates/mark-not-duplicate', () => {
     mockTransaction.mockImplementation(async (fn) =>
       fn({
         componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
-        ride: { findMany: mockTxRideFindMany, updateMany: mockUpdateMany },
+        ride: { findUnique: mockRideFindUnique, findMany: mockTxRideFindMany, updateMany: mockUpdateMany },
       })
     );
     mockUpdateMany.mockResolvedValue({ count: 2 });

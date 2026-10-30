@@ -28,6 +28,11 @@ function rideBikeIds(rides: RideBike[]): string[] {
 /**
  * The legacy hoursUsed debit per bike for deleting these rides, applied only
  * to parts whose counters have never been computed.
+ *
+ * Every deleted ride is debited, flagged or not. The legacy counter credited
+ * each ride on arrival and nothing ever moved it for a duplicate flag, so both
+ * sides of a pair are in it: deleting either one takes its hours out, and
+ * clearing the kept ride's flag changes nothing.
  */
 function legacyDebitByBike(
   rides: Array<RideBike & { durationSeconds: number | null }>
@@ -214,7 +219,7 @@ r.post<Empty, void, { rideId: string }>(
     try {
       const ride = await prisma.ride.findUnique({
         where: { id: rideId },
-        select: { userId: true, duplicateOfId: true },
+        select: { userId: true },
       });
 
       if (!ride) {
@@ -230,12 +235,19 @@ r.post<Empty, void, { rideId: string }>(
       // the same primary (marking the duplicate ride), and any ride pointing
       // to this one (marking the primary ride).
       const affectedBikeIds = await prisma.$transaction(async (tx) => {
+        // Re-read inside the transaction: the flags may have moved since the
+        // ownership check above.
+        const current = await tx.ride.findUnique({
+          where: { id: rideId },
+          select: { duplicateOfId: true },
+        });
+        const primaryId = current?.duplicateOfId ?? null;
         const cleared = await tx.ride.findMany({
           where: {
             userId,
             OR: [
               { id: rideId },
-              ...(ride.duplicateOfId ? [{ duplicateOfId: ride.duplicateOfId }] : []),
+              ...(primaryId ? [{ duplicateOfId: primaryId }] : []),
               { duplicateOfId: rideId },
             ],
           },
@@ -573,9 +585,11 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
 
       // Every flagged ride is cleared below and starts counting again, so its
       // bike is recomputed along with the deleted rides' bikes.
+      // The same set the final updateMany clears; one row per bike is enough.
       const flagged = await tx.ride.findMany({
         where: { userId, isDuplicate: true },
         select: { bikeId: true },
+        distinct: ['bikeId'],
       });
 
       // Clear duplicate flags on rides that will have their primary deleted
