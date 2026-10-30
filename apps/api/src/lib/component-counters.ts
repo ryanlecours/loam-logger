@@ -710,6 +710,63 @@ export async function recomputeCountersForBike(
   opts: { userId: string; bikeId: string; legacyHoursDelta: number }
 ): Promise<string[]> {
   const { userId, bikeId, legacyHoursDelta } = opts;
+  await applyLegacyHoursDelta(tx, userId, bikeId, legacyHoursDelta);
+  const { components } = await loadBikeCandidates(tx, userId, bikeId);
+  // Sorted, so concurrent bulk changes and ride credits take the row locks in
+  // the same order.
+  const sorted = [...components].sort((a, b) => byLockOrder(a.id, b.id));
+  for (const c of sorted) await recomputeComponentCounters(tx, c.id);
+
+  const bikeIds = new Set([bikeId]);
+  for (const c of sorted) if (c.bikeId) bikeIds.add(c.bikeId);
+  return [...bikeIds];
+}
+
+/**
+ * recomputeCountersForBike over several bikes in one transaction, for changes
+ * whose rides sit on more than one bike (duplicate scans and merges). Each
+ * candidate part is recomputed once, and every row lock is taken in one global
+ * byLockOrder, so a part that has been on two of the bikes is neither
+ * recomputed twice nor locked out of order.
+ *
+ * `legacyHoursDelta` maps a bikeId to the hoursUsed change for that bike's
+ * uncomputed parts; a bike with no entry gets none. `componentIds` adds parts
+ * that are not candidates of any of the bikes but count one of the touched
+ * rides anyway: the cross-bike INCLUDEs findAdjustedComponentIdsForRides finds.
+ *
+ * Returns the current bikeIds of the parts it changed, the given bikes included.
+ */
+export async function recomputeCountersForBikes(
+  tx: TransactionClient | Prisma.TransactionClient,
+  opts: {
+    userId: string;
+    bikeIds: string[];
+    legacyHoursDelta?: Map<string, number>;
+    componentIds?: string[];
+  }
+): Promise<string[]> {
+  const { userId, legacyHoursDelta } = opts;
+  const bikeIds = [...new Set(opts.bikeIds)].sort(byLockOrder);
+  const componentIds = new Set(opts.componentIds ?? []);
+  for (const bikeId of bikeIds) {
+    await applyLegacyHoursDelta(tx, userId, bikeId, legacyHoursDelta?.get(bikeId) ?? 0);
+    const { components } = await loadBikeCandidates(tx, userId, bikeId);
+    for (const c of components) componentIds.add(c.id);
+  }
+  const changedBikeIds = await recomputeComponents(tx, [...componentIds]);
+  return [...new Set([...bikeIds, ...changedBikeIds])];
+}
+
+/**
+ * Move the legacy hoursUsed of a bike's uncomputed parts, the only counter they
+ * have, and floor it after a debit.
+ */
+async function applyLegacyHoursDelta(
+  tx: TransactionClient | Prisma.TransactionClient,
+  userId: string,
+  bikeId: string,
+  legacyHoursDelta: number
+): Promise<void> {
   if (legacyHoursDelta !== 0) {
     await (tx as TransactionClient).component.updateMany({
       where: { userId, bikeId, countersComputedAt: null },
@@ -723,13 +780,4 @@ export async function recomputeCountersForBike(
       { bikeId, scope: 'uncomputed' }
     );
   }
-  const { components } = await loadBikeCandidates(tx, userId, bikeId);
-  // Sorted, so concurrent bulk changes and ride credits take the row locks in
-  // the same order.
-  const sorted = [...components].sort((a, b) => byLockOrder(a.id, b.id));
-  for (const c of sorted) await recomputeComponentCounters(tx, c.id);
-
-  const bikeIds = new Set([bikeId]);
-  for (const c of sorted) if (c.bikeId) bikeIds.add(c.bikeId);
-  return [...bikeIds];
 }

@@ -10,6 +10,7 @@ const mockUpdateMany = jest.fn();
 const mockExecuteRaw = jest.fn();
 const mockRideDelete = jest.fn();
 const mockComponentUpdateMany = jest.fn();
+const mockTxRideFindMany = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
@@ -37,10 +38,20 @@ jest.mock('../services/prediction/cache', () => ({
   invalidateBikePrediction: jest.fn().mockResolvedValue(undefined),
 }));
 
+// Every route re-derives counters through this one call; the rule itself is
+// covered in lib/component-counters.test.ts. Echoes the bikes it was given, as
+// the real one includes them in what it returns.
+jest.mock('../lib/component-counters', () => ({
+  ...jest.requireActual('../lib/component-counters'),
+  recomputeCountersForBikes: jest.fn(async (_tx: unknown, opts: { bikeIds: string[] }) => opts.bikeIds),
+}));
+
 import router from './duplicates';
 import { invalidateBikePrediction } from '../services/prediction/cache';
+import { recomputeCountersForBikes } from '../lib/component-counters';
 
 const mockInvalidateBikePrediction = invalidateBikePrediction as jest.Mock;
+const mockRecomputeCountersForBikes = recomputeCountersForBikes as jest.Mock;
 
 interface RouteLayer {
   route?: {
@@ -67,6 +78,7 @@ async function invokeHandler(
 
 type TestRide = {
   id: string;
+  bikeId?: string | null;
   startTime: Date;
   durationSeconds: number;
   distanceMeters: number;
@@ -112,7 +124,13 @@ describe('POST /duplicates/scan', () => {
     };
 
     mockFindMany.mockResolvedValue([]);
-    mockTransaction.mockResolvedValue([]);
+    mockTransaction.mockImplementation(async (fn) =>
+      fn({
+        ride: { update: mockUpdate },
+        componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      })
+    );
+    mockUpdate.mockResolvedValue({});
   });
 
   it('rejects unauthenticated requests', async () => {
@@ -121,6 +139,35 @@ describe('POST /duplicates/scan', () => {
     await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
     expect(mockRes.status).toHaveBeenCalledWith(401);
+  });
+
+  // A flagged ride stops counting. Without a recompute the stored counters kept
+  // charging parts for it while the rides list had already dropped it.
+  it('flags the duplicate, recomputes its bike and busts the cached prediction', async () => {
+    const garmin = makeRide({ id: 'g1', bikeId: 'bike-1', garminActivityId: 'G-100' });
+    const strava = makeRide({
+      id: 's1',
+      bikeId: 'bike-2',
+      stravaActivityId: 'S-100',
+      startTime: new Date('2026-03-15T10:05:00Z'),
+    });
+    mockFindMany.mockResolvedValue([garmin, strava]);
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: 's1' },
+      data: { isDuplicate: true, duplicateOfId: 'g1' },
+    });
+    expect(mockRecomputeCountersForBikes).toHaveBeenCalledWith(expect.anything(), {
+      userId: 'user-123',
+      bikeIds: ['bike-2'],
+      componentIds: [],
+    });
+    expect(mockRecomputeCountersForBikes.mock.invocationCallOrder[0]).toBeGreaterThan(
+      mockUpdate.mock.invocationCallOrder[0]
+    );
+    expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-2');
   });
 
   it('returns 0 duplicates when no rides exist', async () => {
@@ -286,13 +333,14 @@ describe('POST /duplicates/auto-merge', () => {
     mockTransaction.mockImplementation(async (fn) =>
       fn({
         $executeRaw: mockExecuteRaw,
-        ride: { deleteMany: mockDeleteMany, updateMany: mockUpdateMany },
+        ride: { deleteMany: mockDeleteMany, updateMany: mockUpdateMany, findMany: mockTxRideFindMany },
         componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       })
     );
     mockExecuteRaw.mockResolvedValue(undefined);
     mockDeleteMany.mockResolvedValue({ count: 0 });
     mockUpdateMany.mockResolvedValue({ count: 0 });
+    mockTxRideFindMany.mockResolvedValue([]);
   });
 
   function seedRides(preferred: string, dups: DupRow[], primaries: TestRide[]) {
@@ -381,6 +429,57 @@ describe('POST /duplicates/auto-merge', () => {
     expect(mockDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ['s-dup'] } } });
   });
 
+  // Production drift (2026-10-26): the raw hoursUsed decrement left
+  // hoursSinceService, which predictions read, 83h too high on every part.
+  it('recomputes the affected bikes instead of decrementing hoursUsed by hand', async () => {
+    const dup: DupRow = {
+      ...makeRide({ id: 's-dup', bikeId: 'bike-1', stravaActivityId: 'S-1', durationSeconds: 7200 }),
+      duplicateOfId: 'g-primary',
+    };
+    const primary: TestRide = makeRide({ id: 'g-primary', bikeId: 'bike-1', garminActivityId: 'G-1' });
+    seedRides('garmin', [dup], [primary]);
+    // A flagged ride on another bike is cleared too, so that bike counts it again.
+    mockTxRideFindMany.mockResolvedValue([{ bikeId: 'bike-1' }, { bikeId: 'bike-2' }]);
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(mockExecuteRaw).not.toHaveBeenCalled();
+    expect(mockTxRideFindMany).toHaveBeenCalledWith({
+      where: { userId: 'user-123', isDuplicate: true },
+      select: { bikeId: true },
+      distinct: ['bikeId'],
+    });
+    expect(mockRecomputeCountersForBikes).toHaveBeenCalledWith(expect.anything(), {
+      userId: 'user-123',
+      bikeIds: ['bike-1', 'bike-2'],
+      legacyHoursDelta: new Map([['bike-1', -2]]),
+      componentIds: [],
+    });
+    // The recompute is the last write, after the delete and the flag clears.
+    expect(mockRecomputeCountersForBikes.mock.invocationCallOrder[0]).toBeGreaterThan(
+      Math.max(...mockDeleteMany.mock.invocationCallOrder, ...mockUpdateMany.mock.invocationCallOrder)
+    );
+    expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-1');
+    expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-2');
+  });
+
+  // The recompute runs inside the merge transaction, so its failure rolls the
+  // deletes back with it: report the error and bust nothing.
+  it('returns 500 and busts no cache when the recompute fails', async () => {
+    const dup: DupRow = {
+      ...makeRide({ id: 's-dup', bikeId: 'bike-1', stravaActivityId: 'S-1' }),
+      duplicateOfId: 'g-primary',
+    };
+    const primary: TestRide = makeRide({ id: 'g-primary', bikeId: 'bike-1', garminActivityId: 'G-1' });
+    seedRides('garmin', [dup], [primary]);
+    mockRecomputeCountersForBikes.mockRejectedValueOnce(new Error('tx timeout'));
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(mockRes.status).toHaveBeenCalledWith(500);
+    expect(mockInvalidateBikePrediction).not.toHaveBeenCalled();
+  });
+
   it('labels the success message with the correct provider name', async () => {
     mockUserFindUnique.mockResolvedValue({ activeDataSource: 'whoop' });
     mockFindMany.mockResolvedValueOnce([]);
@@ -393,7 +492,7 @@ describe('POST /duplicates/auto-merge', () => {
     mockTransaction.mockImplementation(async (fn) =>
       fn({
         $executeRaw: mockExecuteRaw,
-        ride: { deleteMany: mockDeleteMany, updateMany: mockUpdateMany },
+        ride: { deleteMany: mockDeleteMany, updateMany: mockUpdateMany, findMany: mockTxRideFindMany },
         componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       })
     );
@@ -457,11 +556,10 @@ describe('POST /duplicates/merge', () => {
     durationSeconds: number | null;
   }) {
     mockRideFindUnique
-      .mockResolvedValueOnce({ userId: 'user-123', duplicateOfId: 'del-1' }) // keepRide
+      .mockResolvedValueOnce({ userId: 'user-123', duplicateOfId: 'del-1', bikeId: deleteRide.bikeId }) // keepRide
       .mockResolvedValueOnce({
         userId: 'user-123',
         duplicateOfId: 'keep-1',
-        startTime: new Date('2026-05-01T08:00:00Z'),
         ...deleteRide,
       }); // deleteRide
   }
@@ -475,19 +573,20 @@ describe('POST /duplicates/merge', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('decrements component hours and invalidates the prediction cache when deleting the duplicate', async () => {
+  it('recomputes the bike and invalidates the prediction cache when deleting the duplicate', async () => {
     seedPair({ bikeId: 'bike-1', durationSeconds: 3600 });
 
     await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
     // Duplicate deleted inside the integrity transaction
     expect(mockRideDelete).toHaveBeenCalledWith({ where: { id: 'del-1' } });
-    // The deleted ride's hour comes off bike-1's parts. With no computed part
-    // whose window holds the ride, only the legacy hoursUsed of uncomputed
-    // parts moves (lib/component-counters.ts creditRideToComponents).
-    expect(mockComponentUpdateMany).toHaveBeenCalledWith({
-      where: { userId: 'user-123', bikeId: 'bike-1', countersComputedAt: null },
-      data: { hoursUsed: { increment: -1 } },
+    // bike-1's parts are re-derived from the ledger; the deleted ride's hour
+    // comes off only the legacy hoursUsed of parts never computed.
+    expect(mockRecomputeCountersForBikes).toHaveBeenCalledWith(expect.anything(), {
+      userId: 'user-123',
+      bikeIds: ['bike-1'],
+      legacyHoursDelta: new Map([['bike-1', -1]]),
+      componentIds: [],
     });
     // Prediction cache busted for the affected bike
     expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-1');
@@ -500,7 +599,10 @@ describe('POST /duplicates/merge', () => {
     await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
     expect(mockRideDelete).toHaveBeenCalledWith({ where: { id: 'del-1' } });
-    expect(mockComponentUpdateMany).not.toHaveBeenCalled();
+    expect(mockRecomputeCountersForBikes).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ bikeIds: [] })
+    );
     expect(mockInvalidateBikePrediction).not.toHaveBeenCalled();
     expect(jsonResponse).toMatchObject({ success: true });
   });
@@ -528,5 +630,60 @@ describe('POST /duplicates/merge', () => {
     expect(mockRideDelete).toHaveBeenCalledWith({ where: { id: 'del-1' } });
     expect(mockRes.status).not.toHaveBeenCalledWith(500);
     expect(jsonResponse).toMatchObject({ success: true, keptRideId: 'keep-1' });
+  });
+});
+
+describe('POST /duplicates/mark-not-duplicate', () => {
+  let handler: RequestHandler | undefined;
+  let mockReq: Partial<Request>;
+  let mockRes: Partial<Response>;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    handler = getHandler('/duplicates/mark-not-duplicate', 'post');
+    mockReq = {
+      user: { id: 'user-123' },
+      sessionUser: undefined,
+      body: { rideId: 'dup-1' },
+    } as Partial<Request>;
+    mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
+    mockTransaction.mockImplementation(async (fn) =>
+      fn({
+        componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+        ride: { findUnique: mockRideFindUnique, findMany: mockTxRideFindMany, updateMany: mockUpdateMany },
+      })
+    );
+    mockUpdateMany.mockResolvedValue({ count: 2 });
+  });
+
+  // Clearing the flag makes the ride count again, so its bike is recomputed.
+  it('clears the related flags, recomputes their bikes and busts the cached predictions', async () => {
+    mockRideFindUnique.mockResolvedValue({ userId: 'user-123', duplicateOfId: 'primary-1' });
+    mockTxRideFindMany.mockResolvedValue([
+      { id: 'dup-1', bikeId: 'bike-1' },
+      { id: 'dup-2', bikeId: 'bike-2' },
+    ]);
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(mockTxRideFindMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-123',
+        OR: [{ id: 'dup-1' }, { duplicateOfId: 'primary-1' }, { duplicateOfId: 'dup-1' }],
+      },
+      select: { id: true, bikeId: true },
+    });
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-123', id: { in: ['dup-1', 'dup-2'] } },
+      data: { isDuplicate: false, duplicateOfId: null },
+    });
+    expect(mockRecomputeCountersForBikes).toHaveBeenCalledWith(expect.anything(), {
+      userId: 'user-123',
+      bikeIds: ['bike-1', 'bike-2'],
+      componentIds: [],
+    });
+    expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-1');
+    expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-2');
+    expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });
 });

@@ -3,15 +3,47 @@ import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendForbidden, sendInternalError } from '../lib/api-response';
 import { logError } from '../lib/logger';
 import { isDuplicateActivity } from '../lib/duplicate-detector';
-import {
-  findAdjustedComponentIdsForRides,
-  recomputeAdjustedComponentsForRides,
-  syncBikeComponentHours,
-} from '../lib/component-hours';
+import { findAdjustedComponentIdsForRides } from '../lib/component-hours';
+import { recomputeCountersForBikes, BULK_RECOMPUTE_TX_OPTIONS } from '../lib/component-counters';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
+
+// Every route below changes which rides count toward a part: flagging a ride
+// as a duplicate stops it counting, clearing the flag starts it again, and a
+// merge deletes one side. Each one re-derives the counters of the rides' bikes
+// from the ledger (recomputeCountersForBikes) instead of adjusting them by
+// hand. Auto-merge used to subtract the deleted hours from hoursUsed alone,
+// which left hoursSinceService, the figure predictions read, charging riders
+// for rides that no longer existed.
+
+type RideBike = { bikeId: string | null };
+
+/** The distinct bikes of a set of rides, unassigned rides dropped. */
+function rideBikeIds(rides: RideBike[]): string[] {
+  return [...new Set(rides.map((r) => r.bikeId).filter((id): id is string => !!id))];
+}
+
+/**
+ * The legacy hoursUsed debit per bike for deleting these rides, applied only
+ * to parts whose counters have never been computed.
+ *
+ * Every deleted ride is debited, flagged or not. The legacy counter credited
+ * each ride on arrival and nothing ever moved it for a duplicate flag, so both
+ * sides of a pair are in it: deleting either one takes its hours out, and
+ * clearing the kept ride's flag changes nothing.
+ */
+function legacyDebitByBike(
+  rides: Array<RideBike & { durationSeconds: number | null }>
+): Map<string, number> {
+  const debit = new Map<string, number>();
+  for (const ride of rides) {
+    if (!ride.bikeId || !ride.durationSeconds) continue;
+    debit.set(ride.bikeId, (debit.get(ride.bikeId) ?? 0) - ride.durationSeconds / 3600);
+  }
+  return debit;
+}
 
 /**
  * Get all duplicate rides for a user
@@ -82,10 +114,13 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
     try {
       // Verify both rides belong to this user and check duplicate relationship
       const [keepRide, deleteRide] = await Promise.all([
-        prisma.ride.findUnique({ where: { id: keepRideId }, select: { userId: true, duplicateOfId: true } }),
+        prisma.ride.findUnique({
+          where: { id: keepRideId },
+          select: { userId: true, duplicateOfId: true, bikeId: true },
+        }),
         prisma.ride.findUnique({
           where: { id: deleteRideId },
-          select: { userId: true, duplicateOfId: true, bikeId: true, durationSeconds: true, startTime: true },
+          select: { userId: true, duplicateOfId: true, bikeId: true, durationSeconds: true },
         }),
       ]);
 
@@ -106,23 +141,18 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
         return sendBadRequest(res, 'Rides are not marked as duplicates of each other');
       }
 
-      // Delete the duplicate and keep component hours + ride adjustments in
-      // sync. The auto-merge route already does this; the manual merge was a
-      // gap — it deleted the ride without decrementing the bike's component
-      // hours, recomputing adjusted components, or busting the cached
-      // predictions.
-      const adjustedBikeIds = await prisma.$transaction(async (tx) => {
+      // Delete one ride and unflag the other, then recompute the counters of
+      // both rides' bikes from the ledger. A per-ride debit cannot be right
+      // here: whether the deleted ride is counted depends on whether it was
+      // the flagged one, and the kept ride starts counting once unflagged.
+      const affectedBikeIds = await prisma.$transaction(async (tx) => {
         // Capture BEFORE the delete — adjustment rows cascade away with the
-        // ride, and cross-bike INCLUDEs live on components the decrement
-        // below never touches.
-        const adjustedComponentIds = await findAdjustedComponentIdsForRides(tx, [deleteRideId]);
-
-        await syncBikeComponentHours(
-          tx,
-          userId,
-          { bikeId: deleteRide.bikeId ?? null, durationSeconds: deleteRide.durationSeconds, startTime: deleteRide.startTime },
-          { bikeId: null, durationSeconds: 0, startTime: null }
-        );
+        // ride, and cross-bike INCLUDEs live on parts the bikes' recompute
+        // below would not reach.
+        const adjustedComponentIds = await findAdjustedComponentIdsForRides(tx, [
+          deleteRideId,
+          keepRideId,
+        ]);
 
         // Delete the duplicate
         await tx.ride.delete({
@@ -138,8 +168,13 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
           },
         });
 
-        return recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
-      });
+        return recomputeCountersForBikes(tx, {
+          userId,
+          bikeIds: rideBikeIds([deleteRide, keepRide]),
+          legacyHoursDelta: legacyDebitByBike([deleteRide]),
+          componentIds: adjustedComponentIds,
+        });
+      }, BULK_RECOMPUTE_TX_OPTIONS);
 
       // Invalidate prediction caches for every bike whose component hours
       // changed — independent cache busts, so fire them together. This runs
@@ -148,10 +183,7 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
       // the deleted ride. Best-effort — the cache TTL backstops any staleness.
       try {
         await Promise.all(
-          [...new Set([
-            ...(deleteRide.bikeId ? [deleteRide.bikeId] : []),
-            ...adjustedBikeIds,
-          ])].map((bikeId) => invalidateBikePrediction(userId, bikeId))
+          affectedBikeIds.map((bikeId) => invalidateBikePrediction(userId, bikeId))
         );
       } catch (err) {
         logError('Duplicates merge cache invalidation', err);
@@ -187,7 +219,7 @@ r.post<Empty, void, { rideId: string }>(
     try {
       const ride = await prisma.ride.findUnique({
         where: { id: rideId },
-        select: { userId: true, duplicateOfId: true },
+        select: { userId: true },
       });
 
       if (!ride) {
@@ -198,45 +230,56 @@ r.post<Empty, void, { rideId: string }>(
         return sendForbidden(res, 'Unauthorized');
       }
 
-      // Clear duplicate flags on this ride and any related rides in a transaction
-      await prisma.$transaction(async (tx) => {
-        // Clear flags on the provided ride
-        await tx.ride.update({
+      // Clear duplicate flags on this ride and any related rides in a
+      // transaction. The rides cleared: this one, any other ride pointing to
+      // the same primary (marking the duplicate ride), and any ride pointing
+      // to this one (marking the primary ride).
+      const affectedBikeIds = await prisma.$transaction(async (tx) => {
+        // Re-read inside the transaction: the flags may have moved since the
+        // ownership check above.
+        const current = await tx.ride.findUnique({
           where: { id: rideId },
-          data: {
-            isDuplicate: false,
-            duplicateOfId: null,
-          },
+          select: { duplicateOfId: true },
         });
-
-        // If this ride points to a primary, clear any other rides pointing to that same primary
-        // (handles the case where we're marking the duplicate ride)
-        if (ride.duplicateOfId) {
-          await tx.ride.updateMany({
-            where: {
-              userId,
-              duplicateOfId: ride.duplicateOfId,
-            },
-            data: {
-              isDuplicate: false,
-              duplicateOfId: null,
-            },
-          });
-        }
-
-        // Clear flags on any rides that point to this ride as their primary
-        // (handles the case where we're marking the primary ride)
-        await tx.ride.updateMany({
+        const primaryId = current?.duplicateOfId ?? null;
+        const cleared = await tx.ride.findMany({
           where: {
             userId,
-            duplicateOfId: rideId,
+            OR: [
+              { id: rideId },
+              ...(primaryId ? [{ duplicateOfId: primaryId }] : []),
+              { duplicateOfId: rideId },
+            ],
           },
+          select: { id: true, bikeId: true },
+        });
+        const clearedIds = cleared.map((c) => c.id);
+        const adjustedComponentIds = await findAdjustedComponentIdsForRides(tx, clearedIds);
+
+        await tx.ride.updateMany({
+          where: { userId, id: { in: clearedIds } },
           data: {
             isDuplicate: false,
             duplicateOfId: null,
           },
         });
-      });
+
+        // The cleared rides count again.
+        return recomputeCountersForBikes(tx, {
+          userId,
+          bikeIds: rideBikeIds(cleared),
+          componentIds: adjustedComponentIds,
+        });
+      }, BULK_RECOMPUTE_TX_OPTIONS);
+
+      // Post-commit and best-effort, as in the merge route.
+      try {
+        await Promise.all(
+          affectedBikeIds.map((bikeId) => invalidateBikePrediction(userId, bikeId))
+        );
+      } catch (err) {
+        logError('Duplicates mark-not-duplicate cache invalidation', err);
+      }
 
       return res.json({
         success: true,
@@ -298,6 +341,7 @@ r.post('/duplicates/scan', async (req: Request, res: Response) => {
       },
       select: {
         id: true,
+        bikeId: true,
         startTime: true,
         durationSeconds: true,
         distanceMeters: true,
@@ -355,19 +399,42 @@ r.post('/duplicates/scan', async (req: Request, res: Response) => {
       validPairs.push(pair);
     }
 
-    // Update database with duplicate relationships using transaction for atomicity
+    // Update database with duplicate relationships using transaction for
+    // atomicity. A flagged ride stops counting toward its parts, so the
+    // flagged rides' bikes are recomputed in the same transaction.
     if (validPairs.length > 0) {
-      await prisma.$transaction(
-        validPairs.map(pair =>
-          prisma.ride.update({
+      const rideById = new Map(allRides.map((ride) => [ride.id, ride]));
+      const flagged = validPairs.map((pair) => rideById.get(pair.duplicateId)!);
+
+      const affectedBikeIds = await prisma.$transaction(async (tx) => {
+        for (const pair of validPairs) {
+          await tx.ride.update({
             where: { id: pair.duplicateId },
             data: {
               isDuplicate: true,
               duplicateOfId: pair.primaryId,
             },
-          })
-        )
-      );
+          });
+        }
+
+        return recomputeCountersForBikes(tx, {
+          userId,
+          bikeIds: rideBikeIds(flagged),
+          componentIds: await findAdjustedComponentIdsForRides(
+            tx,
+            validPairs.map((pair) => pair.duplicateId)
+          ),
+        });
+      }, BULK_RECOMPUTE_TX_OPTIONS);
+
+      // Post-commit and best-effort, as in the merge route.
+      try {
+        await Promise.all(
+          affectedBikeIds.map((bikeId) => invalidateBikePrediction(userId, bikeId))
+        );
+      } catch (err) {
+        logError('Duplicates scan cache invalidation', err);
+      }
     }
 
     console.log(`[Duplicates] Scan completed for user ${userId}: found ${duplicatePairs.length} duplicates`);
@@ -483,8 +550,7 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
     });
     const primaryRideMap = new Map(primaryRides.map(r => [r.id, r]));
 
-    const ridesToDelete: string[] = [];
-    const hoursToDecrementByBike = new Map<string, number>();
+    const deletedRides: Array<RideBike & { id: string; durationSeconds: number | null }> = [];
 
     for (const dupRide of duplicateRides) {
       const primaryRide = primaryRideMap.get(dupRide.duplicateOfId!);
@@ -506,34 +572,25 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
         rideToDelete = dupRide;
       }
 
-      ridesToDelete.push(rideToDelete.id);
-
-      // Track hours to decrement per bike
-      if (rideToDelete.bikeId && rideToDelete.durationSeconds) {
-        const hours = rideToDelete.durationSeconds / 3600;
-        hoursToDecrementByBike.set(
-          rideToDelete.bikeId,
-          (hoursToDecrementByBike.get(rideToDelete.bikeId) ?? 0) + hours
-        );
-      }
+      deletedRides.push(rideToDelete);
     }
+    const ridesToDelete = deletedRides.map((ride) => ride.id);
 
     // Perform deletions in transaction
-    const adjustedBikeIds = await prisma.$transaction(async (tx) => {
+    const affectedBikeIds = await prisma.$transaction(async (tx) => {
       // Capture BEFORE the deleteMany — adjustment rows cascade away with
-      // their rides, and cross-bike INCLUDEs live on components the raw
-      // decrement below never touches.
+      // their rides, and cross-bike INCLUDEs live on parts the bikes'
+      // recompute below would not reach.
       const adjustedComponentIds = await findAdjustedComponentIdsForRides(tx, ridesToDelete);
 
-      // Adjust component hours atomically (floor at 0 in single query)
-      for (const [bikeId, hours] of hoursToDecrementByBike.entries()) {
-        await tx.$executeRaw`
-          UPDATE "Component"
-          SET "hoursUsed" = GREATEST(0, "hoursUsed" - ${hours}),
-              "updatedAt" = NOW()
-          WHERE "userId" = ${userId} AND "bikeId" = ${bikeId}
-        `;
-      }
+      // Every flagged ride is cleared below and starts counting again, so its
+      // bike is recomputed along with the deleted rides' bikes.
+      // The same set the final updateMany clears; one row per bike is enough.
+      const flagged = await tx.ride.findMany({
+        where: { userId, isDuplicate: true },
+        select: { bikeId: true },
+        distinct: ['bikeId'],
+      });
 
       // Clear duplicate flags on rides that will have their primary deleted
       // (must happen before deletion to avoid orphaned duplicateOfId references)
@@ -558,19 +615,21 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
         data: { isDuplicate: false, duplicateOfId: null },
       });
 
-      return recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
-    });
+      return recomputeCountersForBikes(tx, {
+        userId,
+        bikeIds: rideBikeIds([...deletedRides, ...flagged]),
+        legacyHoursDelta: legacyDebitByBike(deletedRides),
+        componentIds: adjustedComponentIds,
+      });
+    }, BULK_RECOMPUTE_TX_OPTIONS);
 
     // Invalidate prediction caches for every bike whose component hours
-    // changed (previously a gap on this route — merges decremented hours
-    // without busting the cached predictions). Post-commit best-effort: a
-    // bust failure must not turn the committed merge into a client-visible
-    // 500 (a retry would re-scan against already-deleted rides).
+    // changed. Post-commit best-effort: a bust failure must not turn the
+    // committed merge into a client-visible 500 (a retry would re-scan
+    // against already-deleted rides).
     try {
       await Promise.all(
-        [...new Set([...hoursToDecrementByBike.keys(), ...adjustedBikeIds])].map(
-          (bikeId) => invalidateBikePrediction(userId, bikeId)
-        )
+        affectedBikeIds.map((bikeId) => invalidateBikePrediction(userId, bikeId))
       );
     } catch (err) {
       logError('Duplicates auto-merge cache invalidation', err);
