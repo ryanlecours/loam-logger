@@ -169,8 +169,14 @@ export interface SpareFormState {
   hoursUsed: string;
   serviceDueAtHours: string;
   location?: 'FRONT' | 'REAR';
-  /** Price paid, as typed, in major units of the rider's currency. */
+  /** Price paid, as typed, in major units of purchaseCurrency. */
   purchasePrice?: string;
+  /**
+   * The currency the stored price is in. Set from the component on edit so a
+   * rider who changed their Settings currency and re-saves an old price does
+   * not relabel it; the rider's currency on a new component.
+   */
+  purchaseCurrency?: string;
   purchasedFrom?: string;
 };
 

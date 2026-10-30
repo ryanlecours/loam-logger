@@ -12,6 +12,7 @@ import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import { StatusDot } from './StatusDot';
 import { ServicePartsCostFields } from './ServicePartsCostFields';
 import {
+  partsCostInputValid,
   partsSumMinor,
   partsToInput,
   type PartDraft,
@@ -93,9 +94,12 @@ export function LogServiceModal({
   }, [components, selectedIds, singleSelected]);
 
   const prefillMinor = useMemo(() => partsSumMinor(parts, currency), [parts, currency]);
+  // A refused amount blocks the log rather than being coerced. Only matters
+  // on a single selection, where the details are sent.
+  const detailsValid = !singleSelected || partsCostInputValid(costText, parts, currency);
 
   const handleSubmit = useCallback(async () => {
-    if (selectedIds.size === 0) return;
+    if (selectedIds.size === 0 || !detailsValid) return;
 
     setIsSubmitting(true);
     setError(null);
@@ -138,7 +142,7 @@ export function LogServiceModal({
     } finally {
       setIsSubmitting(false);
     }
-  }, [selectedIds, singleSelected, parts, currency, costText, prefillMinor, serviceDate, logService, onClose]);
+  }, [selectedIds, singleSelected, detailsValid, parts, currency, costText, prefillMinor, serviceDate, logService, onClose]);
 
   const handleClose = useCallback(() => {
     setError(null);
@@ -164,7 +168,7 @@ export function LogServiceModal({
             variant="primary"
             size="sm"
             onClick={handleSubmit}
-            disabled={selectedIds.size === 0 || isSubmitting}
+            disabled={selectedIds.size === 0 || isSubmitting || !detailsValid}
           >
             {isSubmitting ? 'Logging...' : `Log Service (${selectedIds.size})`}
           </Button>

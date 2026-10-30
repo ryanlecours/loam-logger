@@ -10,6 +10,8 @@ export interface MoneyInputProps
   currency?: string;
   /** Replaces the plain code, e.g. a currency picker. */
   prefix?: ReactNode;
+  /** Why the typed text was refused (moneyInputError). Shown under the field. */
+  error?: string | null;
   containerClassName?: string;
 }
 
@@ -27,16 +29,21 @@ export function MoneyInput({
   onChange,
   currency = DEFAULT_CURRENCY,
   prefix,
+  error,
   containerClassName = '',
   className = '',
   disabled,
   ...props
 }: MoneyInputProps) {
+  const errorId = error && props.id ? `${props.id}-error` : undefined;
   return (
+    <div className={containerClassName}>
     <div
-      className={`flex items-stretch rounded-md border border-app bg-surface focus-within:border-forest focus-within:ring-1 focus-within:ring-forest ${
-        disabled ? 'opacity-60' : ''
-      } ${containerClassName}`.trim()}
+      className={`flex items-stretch rounded-md border bg-surface focus-within:ring-1 ${
+        error
+          ? 'border-danger focus-within:border-danger focus-within:ring-danger'
+          : 'border-app focus-within:border-forest focus-within:ring-forest'
+      } ${disabled ? 'opacity-60' : ''}`.trim()}
     >
       {prefix ?? (
         <span className="flex select-none items-center border-r border-app px-2 text-xs text-muted">
@@ -51,9 +58,17 @@ export function MoneyInput({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
+        aria-invalid={error ? 'true' : undefined}
+        aria-describedby={errorId}
         className={`min-w-0 flex-1 bg-transparent px-3 py-2 text-sm text-app placeholder:text-muted focus:outline-none ${className}`.trim()}
         {...props}
       />
+    </div>
+    {error && (
+      <p id={errorId} className="mt-1 text-xs text-danger">
+        {error}
+      </p>
+    )}
     </div>
   );
 }

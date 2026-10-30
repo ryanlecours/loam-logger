@@ -164,6 +164,16 @@ describe('EditServiceModal parts and cost', () => {
     expect(savedInput()).toMatchObject({ costMinor: 3850 });
   });
 
+  it('will not save while an amount is refused', async () => {
+    renderModal();
+    openDetails();
+    fireEvent.change(screen.getByLabelText('Cost'), { target: { value: '12.' } });
+
+    expect(screen.getByText('Enter a plain amount, like 38.50.')).toBeInTheDocument();
+    expect(screen.getByText('Save')).toBeDisabled();
+    expect(mockUpdateServiceLog).not.toHaveBeenCalled();
+  });
+
   it('sends an empty list when the last part is removed', async () => {
     renderModal({
       parts: [{ id: 'p1', brand: 'Fox', model: 'Seal kit', priceMinor: null, vendor: null }],

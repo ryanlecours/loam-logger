@@ -55,6 +55,10 @@ export default function MaintenanceExportPanel() {
         fitted, what they cost and your notes, as a spreadsheet-ready CSV. It is your record;
         take it wherever you like.
       </p>
+      <p className="text-xs text-muted">
+        Hours at each event come from your synced rides. Where any of them came from Garmin,
+        the file ends with two attribution rows in the first column, after the event rows.
+      </p>
       <div>
         <Button variant="outline" size="sm" onClick={handleExport} disabled={busy}>
           <FileDown size={14} className="icon-left" />

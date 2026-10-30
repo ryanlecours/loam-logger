@@ -522,6 +522,26 @@ describe('LogServiceModal parts and cost', () => {
     expect(screen.getByText(hint)).toBeInTheDocument();
   });
 
+  it('refuses an ambiguous amount instead of guessing at it', () => {
+    render(<LogServiceModal {...props} defaultComponentId="comp-1" />);
+    openDetails();
+
+    // "1,200" could be one thousand two hundred or an amount with too many
+    // decimals; the strict parser rejects it and the log waits.
+    fireEvent.change(screen.getByLabelText('Cost'), { target: { value: '1,200' } });
+    expect(screen.getByText('Enter a plain amount, like 38.50.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Cost')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Log Service (1)')).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Cost'), { target: { value: '1200' } });
+    expect(screen.queryByText('Enter a plain amount, like 38.50.')).not.toBeInTheDocument();
+    expect(screen.getByText('Log Service (1)')).toBeEnabled();
+
+    // The same for a part's price.
+    addPart(1, 'Fox', 'Seal kit', '12.');
+    expect(screen.getByText('Log Service (1)')).toBeDisabled();
+  });
+
   it('drops a part without a model and caps the list at twenty', () => {
     render(<LogServiceModal {...props} defaultComponentId="comp-1" />);
     openDetails();

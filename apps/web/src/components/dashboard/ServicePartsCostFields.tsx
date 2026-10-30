@@ -2,7 +2,7 @@ import { ChevronDown, ChevronRight, Plus, X } from 'lucide-react';
 import { SUPPORTED_CURRENCIES } from '@loam/shared';
 
 import { MoneyInput } from '../ui/MoneyInput';
-import { fmtMoney, moneyInputText, parseMoneyInput } from '../../lib/money';
+import { fmtMoney, moneyInputError, moneyInputText, parseMoneyInput } from '../../lib/money';
 import {
   MAX_SERVICE_PARTS,
   newPartDraft,
@@ -58,6 +58,7 @@ export function ServicePartsCostFields({
 }: Props) {
   const typedMinor = parseMoneyInput(costText, currency);
   const effectiveMinor = costText.trim() === '' ? prefillMinor : typedMinor;
+  const costError = moneyInputError(costText, currency);
   const shownText = costText.trim() === '' ? moneyInputText(prefillMinor, currency) : costText;
   const partCount = parts.filter((p) => p.model.trim() !== '').length;
 
@@ -113,6 +114,7 @@ export function ServicePartsCostFields({
               value={shownText}
               onChange={onCostTextChange}
               currency={currency}
+              error={costError}
               prefix={
                 <select
                   aria-label="Currency"
@@ -169,10 +171,12 @@ export function ServicePartsCostFields({
                   <X size={14} />
                 </button>
                 <MoneyInput
+                  id={`${idPrefix}-part-${index + 1}-price`}
                   aria-label={`Part ${index + 1} price`}
                   value={part.price}
                   onChange={(v) => updatePart(part.key, { price: v })}
                   currency={currency}
+                  error={moneyInputError(part.price, currency)}
                   containerClassName="col-span-1"
                 />
                 <input

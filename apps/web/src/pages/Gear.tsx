@@ -19,7 +19,7 @@ import { SpareComponentForm } from '@/components/SpareComponentForm';
 import { UpsellCard } from '@/components/UpgradePrompt';
 import { useUserTier } from '@/hooks/useUserTier';
 import { useCurrency } from '@/hooks/useCurrency';
-import { moneyInputText, parseMoneyInput } from '@/lib/money';
+import { isMoneyInputValid, moneyInputText, parseMoneyInput } from '@/lib/money';
 import { BikeOverviewCard, SpareComponentsPanel, GearPageHeader } from '@/components/gear';
 import { LogServiceModal } from '@/components/dashboard';
 import type { BikePredictionSummary } from '@/types/prediction';
@@ -294,16 +294,23 @@ export default function Gear() {
     const serviceDue = serviceValue === '' ? null : Number(serviceValue);
 
     // Purchase fields: on an edit, null clears; on an add, blank is omitted.
-    const purchasePriceMinor = parseMoneyInput(form.purchasePrice ?? '', currency);
+    // The currency always travels with the amount, and an edited price keeps
+    // the currency it was recorded in.
+    const priceCurrency = form.purchaseCurrency ?? currency;
+    if (!isMoneyInputValid(form.purchasePrice ?? '', priceCurrency)) {
+      setSpareFormError('Price paid must be a plain amount, like 38.50.');
+      return;
+    }
+    const purchasePriceMinor = parseMoneyInput(form.purchasePrice ?? '', priceCurrency);
     const purchasedFrom = (form.purchasedFrom ?? '').trim();
     const purchase = form.id
       ? {
           purchasePriceMinor,
-          purchaseCurrency: purchasePriceMinor != null ? currency : null,
+          purchaseCurrency: purchasePriceMinor != null ? priceCurrency : null,
           purchasedFrom: purchasedFrom || null,
         }
       : {
-          ...(purchasePriceMinor != null ? { purchasePriceMinor, purchaseCurrency: currency } : {}),
+          ...(purchasePriceMinor != null ? { purchasePriceMinor, purchaseCurrency: priceCurrency } : {}),
           ...(purchasedFrom ? { purchasedFrom } : {}),
         };
 
@@ -369,6 +376,7 @@ export default function Gear() {
         currentSpare.purchasePriceMinor ?? null,
         currentSpare.purchaseCurrency ?? currency
       ),
+      purchaseCurrency: currentSpare.purchaseCurrency ?? undefined,
       purchasedFrom: currentSpare.purchasedFrom ?? '',
     };
   }, [currentSpare, currency]);

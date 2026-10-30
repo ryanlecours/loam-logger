@@ -8,7 +8,7 @@ import { MoneyInput } from '../ui/MoneyInput';
 import { INSTALL_COMPONENT, GEAR_QUERY_LIGHT } from '../../graphql/gear';
 import { getComponentLabel } from '../../constants/componentLabels';
 import { dateInputToIsoNoon, todayDateInput } from '../../lib/format';
-import { parseMoneyInput } from '../../lib/money';
+import { isMoneyInputValid, moneyInputError, parseMoneyInput } from '../../lib/money';
 import { useCurrency } from '../../hooks/useCurrency';
 
 // ---------------------------------------------------------------------------
@@ -108,7 +108,7 @@ export function ReplaceComponentModal({
   const canConfirm =
     activeTab === 'spare'
       ? selectedSpareId !== null
-      : newBrand.trim() !== '' && newModel.trim() !== '';
+      : newBrand.trim() !== '' && newModel.trim() !== '' && isMoneyInputValid(newPrice, currency);
 
   const handleConfirm = useCallback(async () => {
     if (!canConfirm) return;
@@ -350,6 +350,7 @@ export function ReplaceComponentModal({
                   value={newPrice}
                   onChange={setNewPrice}
                   currency={currency}
+                  error={moneyInputError(newPrice, currency)}
                 />
               </div>
               <div className="flex flex-col gap-1">

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { isHoursOnlyComponent } from "@loam/shared";
 import { Button } from "./ui";
 import { MoneyInput } from "./ui/MoneyInput";
+import { moneyInputError } from "@/lib/money";
 import type { SpareFormState, SpareComponentType } from "@/models/BikeComponents";
 import { getComponentLabel } from "@/constants/componentLabels";
 
@@ -163,9 +164,11 @@ export function SpareComponentForm({
         <label className="flex flex-col gap-2 text-sm">
           <span className="label-muted">Price paid</span>
           <MoneyInput
+            id="component-purchase-price"
             value={form.purchasePrice ?? ''}
             onChange={(v) => setField('purchasePrice', v)}
-            currency={currency}
+            currency={form.purchaseCurrency ?? currency}
+            error={moneyInputError(form.purchasePrice ?? '', form.purchaseCurrency ?? currency)}
             aria-label="Price paid"
           />
         </label>

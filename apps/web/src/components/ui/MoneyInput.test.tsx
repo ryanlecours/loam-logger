@@ -27,4 +27,13 @@ describe('MoneyInput', () => {
     expect(screen.getByText('pick')).toBeInTheDocument();
     expect(screen.queryByText('USD')).not.toBeInTheDocument();
   });
+
+  it('marks the field invalid and shows the reason when given an error', () => {
+    render(<MoneyInput id="cost" aria-label="Cost" value="1,200" onChange={() => {}} error="Enter a plain amount, like 38.50." />);
+
+    const input = screen.getByLabelText('Cost');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Enter a plain amount, like 38.50.')).toBeInTheDocument();
+    expect(input).toHaveAttribute('aria-describedby', 'cost-error');
+  });
 });

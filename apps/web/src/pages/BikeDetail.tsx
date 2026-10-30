@@ -20,7 +20,7 @@ import { StatusPill } from '@/components/dashboard/StatusPill';
 import { LogServiceModal } from '@/components/dashboard/LogServiceModal';
 import { BikeCostLine } from '@/components/gear/BikeCostLine';
 import { useCurrency } from '@/hooks/useCurrency';
-import { moneyInputText, parseMoneyInput } from '@/lib/money';
+import { isMoneyInputValid, moneyInputText, parseMoneyInput } from '@/lib/money';
 import { UpdateAcquisitionModal } from '@/components/gear/UpdateAcquisitionModal';
 import { ComponentDetailRow } from '@/components/gear/ComponentDetailRow';
 import { ReplaceComponentModal } from '@/components/gear/ReplaceComponentModal';
@@ -246,8 +246,14 @@ export default function BikeDetail() {
     const serviceDue = serviceValue === '' ? null : Number(serviceValue);
 
     // Null clears a purchase field the rider blanked; the API leaves omitted
-    // fields alone, so these are always sent on an edit.
-    const purchasePriceMinor = parseMoneyInput(form.purchasePrice ?? '', currency);
+    // fields alone, so these are always sent on an edit. The currency travels
+    // with the amount, and an edited price keeps the one it was recorded in.
+    const priceCurrency = form.purchaseCurrency ?? currency;
+    if (!isMoneyInputValid(form.purchasePrice ?? '', priceCurrency)) {
+      setComponentFormError('Price paid must be a plain amount, like 38.50.');
+      return;
+    }
+    const purchasePriceMinor = parseMoneyInput(form.purchasePrice ?? '', priceCurrency);
     const purchasedFrom = (form.purchasedFrom ?? '').trim();
     const payload = {
       brand: form.brand || undefined,
@@ -258,7 +264,7 @@ export default function BikeDetail() {
       serviceDueAtHours: Number.isNaN(serviceDue ?? 0) ? undefined : serviceDue,
       location: form.location ?? undefined,
       purchasePriceMinor,
-      purchaseCurrency: purchasePriceMinor != null ? currency : null,
+      purchaseCurrency: purchasePriceMinor != null ? priceCurrency : null,
       purchasedFrom: purchasedFrom || null,
     };
 
@@ -692,6 +698,7 @@ export default function BikeDetail() {
                 editingComponent.purchasePriceMinor ?? null,
                 editingComponent.purchaseCurrency ?? currency
               ),
+              purchaseCurrency: editingComponent.purchaseCurrency ?? undefined,
               purchasedFrom: editingComponent.purchasedFrom ?? '',
             }}
             currency={currency}

@@ -1,7 +1,7 @@
 // Draft rows for the parts fitted during a service, and their conversion to
 // the API's ServicePartInput. Kept apart from the ServicePartsCostFields
 // component so the component file exports only components (fast refresh).
-import { moneyInputText, parseMoneyInput } from './money';
+import { isMoneyInputValid, moneyInputText, parseMoneyInput } from './money';
 
 /** The API caps a log at this many parts. */
 export const MAX_SERVICE_PARTS = 20;
@@ -59,6 +59,19 @@ export function partsToInput(parts: ReadonlyArray<PartDraft>, currency: string):
         ...(vendor ? { vendor } : {}),
       };
     });
+}
+
+/**
+ * False while the cost field or any part's price holds something the strict
+ * parser refuses. Forms disable their submit on it: a mistyped amount must
+ * fail, never quietly become a different valid one.
+ */
+export function partsCostInputValid(
+  costText: string,
+  parts: ReadonlyArray<PartDraft>,
+  currency: string
+): boolean {
+  return isMoneyInputValid(costText, currency) && parts.every((p) => isMoneyInputValid(p.price, currency));
 }
 
 /** Sum of the priced parts, or null when none carries a price. */

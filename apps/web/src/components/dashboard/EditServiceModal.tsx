@@ -12,6 +12,7 @@ import { moneyInputText, parseMoneyInput } from '../../lib/money';
 import { useCurrency } from '../../hooks/useCurrency';
 import { ServicePartsCostFields } from './ServicePartsCostFields';
 import {
+  partsCostInputValid,
   partsFromLog,
   partsSumMinor,
   partsToInput,
@@ -81,10 +82,16 @@ export function EditServiceModal({ log, componentLabel, bikeId, component, onClo
   }, [log, defaultCurrency]);
 
   const prefillMinor = useMemo(() => partsSumMinor(parts, currency), [parts, currency]);
+  // A refused amount blocks the save rather than being coerced.
+  const detailsValid = partsCostInputValid(costText, parts, currency);
 
   if (!log) return null;
 
   const handleSave = async () => {
+    if (!detailsValid) {
+      setError('Check the amounts: enter plain numbers, like 38.50.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -177,7 +184,7 @@ export function EditServiceModal({ log, componentLabel, bikeId, component, onClo
             <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button variant="primary" size="sm" onClick={handleSave} disabled={busy || confirmingDelete}>
+            <Button variant="primary" size="sm" onClick={handleSave} disabled={busy || confirmingDelete || !detailsValid}>
               {busy ? 'Saving…' : 'Save'}
             </Button>
           </div>

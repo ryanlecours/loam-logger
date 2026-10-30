@@ -34,18 +34,30 @@ export function moneyInputText(minor: number | null | undefined, currency: strin
 }
 
 /**
- * Typed text to integer minor units. Null for an empty field or anything
- * that does not read as a number, so callers never send 0 for "unknown".
+ * Typed text to integer minor units. Null for an empty field and for anything
+ * @loam/shared's strict parser rejects ("12.", "1,200", "1e3", a sign), so
+ * callers never send 0 for "unknown" and never a guessed amount. Check
+ * isMoneyInputValid first to tell the two nulls apart.
  */
 export function parseMoneyInput(text: string, currency: string = DEFAULT_CURRENCY): number | null {
   const trimmed = text.trim();
-  if (trimmed === '' || trimmed.startsWith('-')) return null;
-  const minor = majorToMinor(trimmed, currency);
-  if (minor == null || minor < 0) return null;
-  // Nothing numeric at all ("abc") collapses to 0 upstream; a rider who typed
-  // no digits recorded nothing.
-  if (minor === 0 && !/\d/.test(trimmed)) return null;
-  return minor;
+  if (trimmed === '') return null;
+  return majorToMinor(trimmed, currency);
+}
+
+/** True for an empty field or one the strict parser accepts. */
+export function isMoneyInputValid(text: string, currency: string = DEFAULT_CURRENCY): boolean {
+  return text.trim() === '' || majorToMinor(text.trim(), currency) != null;
+}
+
+/**
+ * The one-line reason a typed amount was refused, or null when it is fine.
+ * Shown under the field; the form also refuses to submit while it shows.
+ */
+export function moneyInputError(text: string, currency: string = DEFAULT_CURRENCY): string | null {
+  if (isMoneyInputValid(text, currency)) return null;
+  const example = currencyMinorDigits(currency) === 0 ? '1200' : '38.50';
+  return `Enter a plain amount, like ${example}.`;
 }
 
 /**
