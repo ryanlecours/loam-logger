@@ -16,6 +16,9 @@ describe('csvField', () => {
   it('defuses spreadsheet formulas in rider text', () => {
     expect(csvField('=HYPERLINK("x")')).toBe(`"'=HYPERLINK(""x"")"`);
     expect(csvField('-5 psi lower')).toBe("'-5 psi lower");
+    expect(csvField('@SUM(1)')).toBe("'@SUM(1)");
+    expect(csvField('\tcmd')).toBe("'\tcmd");
+    expect(csvField('\rcmd')).toBe(`"'\rcmd"`);
   });
 });
 
@@ -108,5 +111,7 @@ describe('buildMaintenanceCsv', () => {
     const lines = csv.trimEnd().split('\r\n');
     expect(lines[lines.length - 2]).toBe(csvField(GARMIN_INSIGHT_ATTRIBUTION));
     expect(lines[lines.length - 1]).toBe(csvField(GARMIN_TRADEMARK_NOTICE));
+    // No blank record between the events and the attribution.
+    expect(lines.every((l) => l.length > 0)).toBe(true);
   });
 });

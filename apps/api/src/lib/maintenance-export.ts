@@ -53,9 +53,10 @@ export interface MaintenanceCsvResult {
 export function csvField(value: string | number | null | undefined): string {
   if (value == null) return '';
   const s = String(value);
-  // A leading =, +, - or @ would be read as a formula by a spreadsheet; the
-  // apostrophe keeps rider text as text.
-  const safe = /^[=+\-@]/.test(s) ? `'${s}` : s;
+  // A leading =, +, - or @ (or a tab or carriage return, which OWASP lists
+  // too) would be read as a formula by a spreadsheet; the apostrophe keeps
+  // rider text as text.
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
@@ -121,14 +122,24 @@ export async function buildMaintenanceCsv(
   for (const bike of bikes) {
     windowsByBike.set(bike.id, await componentWindowsForBike(db, bike.id, userId, now));
   }
-  const bikeFor = (componentId: string, at: Date): string => {
-    for (const [bikeId, windows] of windowsByBike) {
-      if (windowContaining(windows, componentId, at)) {
-        const bike = bikeById.get(bikeId);
-        return bike ? bikeLabel(bike) : '';
-      }
+  // Index the windows by component so placing each log is a lookup over that
+  // part's few tenures, not a scan of every window of every bike.
+  const windowsByComponent = new Map<string, Array<ComponentWindow & { bikeId: string }>>();
+  for (const [bikeId, windows] of windowsByBike) {
+    for (const w of windows) {
+      const list = windowsByComponent.get(w.componentId);
+      const entry = { ...w, bikeId };
+      if (list) list.push(entry);
+      else windowsByComponent.set(w.componentId, [entry]);
     }
-    return '';
+  }
+  const bikeFor = (componentId: string, at: Date): string => {
+    const hit = windowContaining(windowsByComponent.get(componentId) ?? [], componentId, at) as
+      | (ComponentWindow & { bikeId: string })
+      | null;
+    if (!hit) return '';
+    const bike = bikeById.get(hit.bikeId);
+    return bike ? bikeLabel(bike) : '';
   };
 
   const rows: Array<{ at: Date; row: Row }> = [];
@@ -186,9 +197,10 @@ export async function buildMaintenanceCsv(
 
   const attributed = garminRide != null;
   if (attributed) {
-    // Attribution travels with the data. Kept as rows in the first column so
-    // the file still parses as a CSV.
-    lines.push('');
+    // Attribution travels with the data, as two trailing records in the
+    // first column (no blank separator, which strict parsers read as an
+    // empty record). A reader that wants only events can drop rows whose
+    // event column is empty.
     lines.push(csvField(GARMIN_INSIGHT_ATTRIBUTION));
     lines.push(csvField(GARMIN_TRADEMARK_NOTICE));
   }

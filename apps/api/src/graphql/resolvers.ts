@@ -103,7 +103,7 @@ import {
 import { captureSetupSnapshot } from '../lib/capture-snapshot';
 import { componentCostSummary, bikeCostSummary, sumServiceSpend } from '../lib/cost-summary';
 import { componentWindowsForBike, serviceLogWhereForWindows } from '../lib/component-history';
-import { isSupportedCurrency, MAX_AMOUNT_MINOR, SUPPORTED_CURRENCIES } from '@loam/shared';
+import { isSupportedCurrency, MAX_AMOUNT_MINOR, SUPPORTED_CURRENCIES, DEFAULT_CURRENCY } from '@loam/shared';
 import { elevationLossFromProvider } from '../lib/elevation-loss';
 import type { SetupSnapshot } from '@loam/shared';
 import { randomBytes } from 'crypto';
@@ -635,7 +635,14 @@ const resolveCurrency = async (
     return sent;
   }
   const user = await db.user.findUnique({ where: { id: userId }, select: { currency: true } });
-  return user?.currency ?? 'USD';
+  return user?.currency ?? DEFAULT_CURRENCY;
+};
+
+/** The purchase columns shared by Component and Bike. */
+type PurchaseColumns = {
+  purchasePriceMinor?: number | null;
+  purchaseCurrency?: string | null;
+  purchasedFrom?: string | null;
 };
 
 /** Validated, trimmed parts in the rider's order; [] when none were sent. */
@@ -662,14 +669,19 @@ const normalizeServiceParts = (parts: ServicePartInputGQL[] | null | undefined) 
  * The purchase columns to write for a component or bike, from the optional
  * purchase fields on its input. Undefined keys are left out so an update that
  * never mentioned the price leaves it alone; null clears it. A price always
- * carries a currency: the sent one, else the rider's, else USD.
+ * carries a currency: the sent one, else the currency already stored on the
+ * row being edited, else the rider's Settings currency, else the default.
+ * The stored one comes before the rider's so that correcting the amount of a
+ * part bought in euros does not relabel it in dollars. A currency sent
+ * without a price is ignored: a code on a null amount says nothing.
  */
 const normalizePurchaseInput = async (
   db: Prisma.TransactionClient | typeof prisma,
   userId: string,
-  input: PurchaseInputGQL
-): Promise<{ purchasePriceMinor?: number | null; purchaseCurrency?: string | null; purchasedFrom?: string | null }> => {
-  const out: { purchasePriceMinor?: number | null; purchaseCurrency?: string | null; purchasedFrom?: string | null } = {};
+  input: PurchaseInputGQL,
+  existingCurrency: string | null = null
+): Promise<PurchaseColumns> => {
+  const out: PurchaseColumns = {};
   if (input.purchasePriceMinor !== undefined) {
     if (input.purchasePriceMinor === null) {
       out.purchasePriceMinor = null;
@@ -677,11 +689,8 @@ const normalizePurchaseInput = async (
     } else {
       assertMinorAmount('purchasePriceMinor', input.purchasePriceMinor);
       out.purchasePriceMinor = input.purchasePriceMinor;
-      out.purchaseCurrency = await resolveCurrency(db, userId, input.purchaseCurrency);
+      out.purchaseCurrency = await resolveCurrency(db, userId, input.purchaseCurrency ?? existingCurrency);
     }
-  } else if (input.purchaseCurrency != null) {
-    assertCurrency(input.purchaseCurrency);
-    out.purchaseCurrency = input.purchaseCurrency;
   }
   if (input.purchasedFrom !== undefined) {
     out.purchasedFrom = cleanText(input.purchasedFrom, MAX_LABEL_LEN) ?? null;
@@ -3233,7 +3242,7 @@ export const resolvers = {
       const userId = requireUserId(ctx);
       const existing = await prisma.bike.findUnique({
         where: { id },
-        select: { userId: true },
+        select: { userId: true, purchaseCurrency: true },
       });
       if (!existing || existing.userId !== userId) throw new Error('Bike not found');
 
@@ -3282,7 +3291,7 @@ export const resolvers = {
       // those hours were really ridden. The e-bike gate is enforced at install
       // and swap time only, never retroactively.
       if (input.isEbike !== undefined) data.isEbike = Boolean(input.isEbike);
-      const bikePurchase = await normalizePurchaseInput(prisma, userId, input);
+      const bikePurchase = await normalizePurchaseInput(prisma, userId, input, existing.purchaseCurrency);
       if (bikePurchase.purchasePriceMinor !== undefined) data.purchasePriceMinor = bikePurchase.purchasePriceMinor;
       if (bikePurchase.purchaseCurrency !== undefined) data.purchaseCurrency = bikePurchase.purchaseCurrency;
       if (input.gender !== undefined) data.gender = cleanText(input.gender, MAX_LABEL_LEN) ?? null;
@@ -3563,7 +3572,7 @@ export const resolvers = {
         hoursUsed: existing.hoursUsed,
         serviceDueAtHours: existing.serviceDueAtHours,
       });
-      const purchase = await normalizePurchaseInput(prisma, userId, input);
+      const purchase = await normalizePurchaseInput(prisma, userId, input, existing.purchaseCurrency);
 
       // Invalidate prediction cache BEFORE update to prevent stale reads
       if (existing.bikeId) {
