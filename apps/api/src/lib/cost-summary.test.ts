@@ -86,6 +86,19 @@ describe('sumServiceSpend', () => {
     });
   });
 
+  it('falls back to the first currency seen, then the default, when the viewer has none set', () => {
+    expect(sumServiceSpend([{ costMinor: 500, currency: 'GBP' }], null)).toEqual({
+      spendMinor: 500,
+      spendCurrency: 'GBP',
+      spendOtherCurrencyCount: 0,
+    });
+    expect(sumServiceSpend([{ costMinor: 500, currency: null }], undefined)).toEqual({
+      spendMinor: 500,
+      spendCurrency: 'USD',
+      spendOtherCurrencyCount: 0,
+    });
+  });
+
   it('sums one currency and counts the others instead of converting', () => {
     expect(
       sumServiceSpend(

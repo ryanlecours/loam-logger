@@ -808,11 +808,11 @@ export function serviceLogWhereForWindows(
 }
 
 /** The window (if any) that contains the moment, for attributing one log to a bike. */
-export function windowContaining(
-  windows: ComponentWindow[],
+export function windowContaining<T extends ComponentWindow>(
+  windows: T[],
   componentId: string,
   at: Date
-): ComponentWindow | null {
+): T | null {
   for (const w of windows) {
     if (w.componentId === componentId && at >= w.start && at < w.end) return w;
   }

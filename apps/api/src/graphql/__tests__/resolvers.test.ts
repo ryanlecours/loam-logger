@@ -4735,6 +4735,18 @@ describe('GraphQL Resolvers', () => {
         expect(mockUserFindUnique).not.toHaveBeenCalled();
       });
 
+      it('keeps the currency a log already has when only the amount is corrected', async () => {
+        mockLogFindUnique.mockResolvedValue({ ...existingLog, costMinor: 9000, currency: 'EUR' });
+
+        await updateLog({ costMinor: 9500 });
+
+        const data = logUpdate.mock.calls[0][0].data;
+        expect(data.costMinor).toBe(9500);
+        // Not relabelled in the rider's CAD: the stored EUR stands.
+        expect(data).not.toHaveProperty('currency');
+        expect(mockUserFindUnique).not.toHaveBeenCalled();
+      });
+
       it('removes every part when an empty list is sent', async () => {
         await updateLog({ parts: [] });
 

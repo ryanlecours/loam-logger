@@ -16,6 +16,11 @@ describe('csvField', () => {
   it('defuses spreadsheet formulas in rider text', () => {
     expect(csvField('=HYPERLINK("x")')).toBe(`"'=HYPERLINK(""x"")"`);
     expect(csvField('-5 psi lower')).toBe("'-5 psi lower");
+    expect(csvField('@SUM(1)')).toBe("'@SUM(1)");
+    expect(csvField('\tcmd')).toBe("'\tcmd");
+    expect(csvField('\rcmd')).toBe(`"'\rcmd"`);
+    // Spreadsheets skip leading whitespace before deciding it is a formula.
+    expect(csvField('  =1+1')).toBe("'  =1+1");
   });
 });
 
@@ -75,6 +80,18 @@ describe('buildMaintenanceCsv', () => {
             notes: null,
             parts: [],
           },
+          {
+            // A cost stored without a code (the API never writes one, but the
+            // column is nullable): number and currency cell use the same default.
+            componentId: 'chain-new',
+            performedAt: d('2026-03-01T12:00:00Z'),
+            kind: 'SERVICE',
+            hoursAtService: 12,
+            costMinor: 1200,
+            currency: null,
+            notes: null,
+            parts: [],
+          },
         ]),
       },
       ride: { findFirst: jest.fn(async () => (opts.garmin ? { id: 'r1' } : null)) },
@@ -86,11 +103,11 @@ describe('buildMaintenanceCsv', () => {
     expect(csv.startsWith('﻿')).toBe(true);
     const lines = csv.replace('﻿', '').trimEnd().split('\r\n');
     expect(lines[0]).toBe(MAINTENANCE_CSV_COLUMNS.join(','));
-    expect(rowCount).toBe(5);
+    expect(rowCount).toBe(6);
     expect(bikeCount).toBe(1);
     expect(attributed).toBe(false);
 
-    // Chronological: install, service, removal, install, inspection.
+    // Chronological: install, service, removal, install, inspection, service.
     expect(lines[1]).toBe('2025-01-01,Trail bike,Chain,,Shimano,XT,installed,,,,,,');
     expect(lines[2]).toBe(
       '2025-06-15,Trail bike,Chain,,Shimano,XT,service,42.3,15.00,USD,Silca Secret Chain Wax (15.00); Quick link,Local shop,"Waxed, ""hot melt"""'
@@ -99,7 +116,26 @@ describe('buildMaintenanceCsv', () => {
     expect(lines[4]).toBe('2026-01-01,Trail bike,Chain,,SRAM,GX Eagle,installed,,,,,,');
     // The inspection happened after the part left the bike, so it has none.
     expect(lines[5]).toBe('2026-02-01,,Chain,,Shimano,XT,inspection,60.0,,,,,');
+    expect(lines[6]).toBe('2026-03-01,Trail bike,Chain,,SRAM,GX Eagle,service,12.0,12.00,USD,,,');
     expect(csv).not.toContain(GARMIN_TRADEMARK_NOTICE);
+  });
+
+  it('scopes every query to the exporting rider', async () => {
+    const fake = db();
+    await buildMaintenanceCsv(fake, 'u1', NOW);
+    const calls = [
+      (fake.bike.findMany as jest.Mock).mock.calls[0][0].where,
+      (fake.component.findMany as jest.Mock).mock.calls[0][0].where,
+      (fake.bikeComponentInstall.findMany as jest.Mock).mock.calls[0][0].where,
+      (fake.ride.findFirst as jest.Mock).mock.calls[0][0].where,
+    ];
+    for (const where of calls) expect(where.userId).toBe('u1');
+    // Service logs have no userId column; they are scoped through the component.
+    expect((fake.serviceLog.findMany as jest.Mock).mock.calls[0][0].where).toEqual({ component: { userId: 'u1' } });
+    // The per-bike window queries carry it too.
+    for (const call of (fake.bikeComponentInstall.findMany as jest.Mock).mock.calls) {
+      expect(call[0].where.userId).toBe('u1');
+    }
   });
 
   it('carries the Garmin attribution when any ride came from Garmin', async () => {
@@ -108,5 +144,7 @@ describe('buildMaintenanceCsv', () => {
     const lines = csv.trimEnd().split('\r\n');
     expect(lines[lines.length - 2]).toBe(csvField(GARMIN_INSIGHT_ATTRIBUTION));
     expect(lines[lines.length - 1]).toBe(csvField(GARMIN_TRADEMARK_NOTICE));
+    // No blank record between the events and the attribution.
+    expect(lines.every((l) => l.length > 0)).toBe(true);
   });
 });

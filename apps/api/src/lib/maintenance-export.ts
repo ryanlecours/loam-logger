@@ -16,6 +16,7 @@
  */
 import type { Prisma, PrismaClient } from '@prisma/client';
 import {
+  DEFAULT_CURRENCY,
   GARMIN_INSIGHT_ATTRIBUTION,
   GARMIN_TRADEMARK_NOTICE,
   formatComponentType,
@@ -53,15 +54,24 @@ export interface MaintenanceCsvResult {
 export function csvField(value: string | number | null | undefined): string {
   if (value == null) return '';
   const s = String(value);
-  // A leading =, +, - or @ would be read as a formula by a spreadsheet; the
-  // apostrophe keeps rider text as text.
-  const safe = /^[=+\-@]/.test(s) ? `'${s}` : s;
+  // A leading =, +, - or @ (or a tab or carriage return, which OWASP lists
+  // too), even after leading whitespace, would be read as a formula by a
+  // spreadsheet; the apostrophe keeps rider text as text.
+  const safe = /^\s*[=+\-@\t\r]/.test(s) ? `'${s}` : s;
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
+/**
+ * The currency an exported amount is written in. The API always stores a code
+ * beside an amount, so a null here is a legacy or hand-edited row; the default
+ * is used for the number and written into the currency cell too, so the two
+ * never disagree.
+ */
+export const exportCurrency = (currency: string | null | undefined): string => currency ?? DEFAULT_CURRENCY;
+
 export function formatMinor(minor: number | null | undefined, currency: string | null | undefined): string {
   if (minor == null) return '';
-  const code = currency ?? 'USD';
+  const code = exportCurrency(currency);
   return minorToMajor(minor, code).toFixed(currencyMinorDigits(code));
 }
 
@@ -117,18 +127,27 @@ export async function buildMaintenanceCsv(
 
   // Tenure windows per bike, so each service can be placed on the bike it was
   // performed on. Bikes are few; one pass each.
-  const windowsByBike = new Map<string, ComponentWindow[]>();
-  for (const bike of bikes) {
-    windowsByBike.set(bike.id, await componentWindowsForBike(db, bike.id, userId, now));
+  const windowsByBike = new Map<string, ComponentWindow[]>(
+    await Promise.all(
+      bikes.map(async (bike) => [bike.id, await componentWindowsForBike(db, bike.id, userId, now)] as const)
+    )
+  );
+  // Index the windows by component so placing each log is a lookup over that
+  // part's few tenures, not a scan of every window of every bike.
+  const windowsByComponent = new Map<string, Array<ComponentWindow & { bikeId: string }>>();
+  for (const [bikeId, windows] of windowsByBike) {
+    for (const w of windows) {
+      const list = windowsByComponent.get(w.componentId);
+      const entry = { ...w, bikeId };
+      if (list) list.push(entry);
+      else windowsByComponent.set(w.componentId, [entry]);
+    }
   }
   const bikeFor = (componentId: string, at: Date): string => {
-    for (const [bikeId, windows] of windowsByBike) {
-      if (windowContaining(windows, componentId, at)) {
-        const bike = bikeById.get(bikeId);
-        return bike ? bikeLabel(bike) : '';
-      }
-    }
-    return '';
+    const hit = windowContaining(windowsByComponent.get(componentId) ?? [], componentId, at);
+    if (!hit) return '';
+    const bike = bikeById.get(hit.bikeId);
+    return bike ? bikeLabel(bike) : '';
   };
 
   const rows: Array<{ at: Date; row: Row }> = [];
@@ -170,7 +189,7 @@ export async function buildMaintenanceCsv(
       event: log.kind === 'INSPECTION' ? 'inspection' : 'service',
       hours_at_event: log.hoursAtService.toFixed(1),
       cost: formatMinor(log.costMinor, log.currency),
-      currency: log.costMinor != null ? log.currency ?? '' : '',
+      currency: log.costMinor != null ? exportCurrency(log.currency) : '',
       parts,
       vendors,
       notes: log.notes ?? '',
@@ -186,9 +205,10 @@ export async function buildMaintenanceCsv(
 
   const attributed = garminRide != null;
   if (attributed) {
-    // Attribution travels with the data. Kept as rows in the first column so
-    // the file still parses as a CSV.
-    lines.push('');
+    // Attribution travels with the data, as two trailing records in the
+    // first column (no blank separator, which strict parsers read as an
+    // empty record). A reader that wants only events can drop rows whose
+    // event column is empty.
     lines.push(csvField(GARMIN_INSIGHT_ATTRIBUTION));
     lines.push(csvField(GARMIN_TRADEMARK_NOTICE));
   }
