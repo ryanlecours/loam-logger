@@ -87,6 +87,9 @@ export type AddComponentInput = {
   location?: InputMaybe<ComponentLocation>;
   model?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  purchaseCurrency?: InputMaybe<Scalars['String']['input']>;
+  purchasePriceMinor?: InputMaybe<Scalars['Int']['input']>;
+  purchasedFrom?: InputMaybe<Scalars['String']['input']>;
   serviceDueAtHours?: InputMaybe<Scalars['Float']['input']>;
   type: ComponentType;
 };
@@ -173,6 +176,7 @@ export type Bike = {
    * Garmin data is absent. Do not infer this from a single ride's source.
    */
   contributingSources: Array<Scalars['String']['output']>;
+  costSummary?: Maybe<BikeCostSummary>;
   createdAt: Scalars['String']['output'];
   family?: Maybe<Scalars['String']['output']>;
   fork?: Maybe<Component>;
@@ -193,6 +197,8 @@ export type Bike = {
   notificationPreference?: Maybe<BikeNotificationPreference>;
   pivotBearings?: Maybe<Component>;
   predictions?: Maybe<BikePredictionSummary>;
+  purchaseCurrency?: Maybe<Scalars['String']['output']>;
+  purchasePriceMinor?: Maybe<Scalars['Int']['output']>;
   retiredAt?: Maybe<Scalars['String']['output']>;
   seatpost?: Maybe<Component>;
   servicePreferences: Array<BikeServicePreference>;
@@ -236,6 +242,26 @@ export type BikeComponentInstall = {
   slotKey: Scalars['String']['output'];
 };
 
+export type BikeCostSummary = {
+  __typename?: 'BikeCostSummary';
+  bikeMinor?: Maybe<Scalars['Int']['output']>;
+  byYear: Array<BikeCostYear>;
+  currency: Scalars['String']['output'];
+  otherCurrencyCount: Scalars['Int']['output'];
+  partsMinor: Scalars['Int']['output'];
+  perHourMinor?: Maybe<Scalars['Float']['output']>;
+  rideHours: Scalars['Float']['output'];
+  serviceMinor: Scalars['Int']['output'];
+  totalMinor: Scalars['Int']['output'];
+};
+
+export type BikeCostYear = {
+  __typename?: 'BikeCostYear';
+  partsMinor: Scalars['Int']['output'];
+  serviceMinor: Scalars['Int']['output'];
+  year: Scalars['Int']['output'];
+};
+
 export type BikeHistoryPayload = {
   __typename?: 'BikeHistoryPayload';
   bike: Bike;
@@ -251,6 +277,9 @@ export type BikeHistoryTotals = {
   installEventCount: Scalars['Int']['output'];
   rideCount: Scalars['Int']['output'];
   serviceEventCount: Scalars['Int']['output'];
+  spendCurrency?: Maybe<Scalars['String']['output']>;
+  spendMinor?: Maybe<Scalars['Int']['output']>;
+  spendOtherCurrencyCount: Scalars['Int']['output'];
   totalDistanceMeters: Scalars['Float']['output'];
   totalDurationSeconds: Scalars['Int']['output'];
   totalElevationGainMeters: Scalars['Float']['output'];
@@ -406,6 +435,7 @@ export type Component = {
   baselineWearPercent?: Maybe<Scalars['Int']['output']>;
   bikeId?: Maybe<Scalars['ID']['output']>;
   brand: Scalars['String']['output'];
+  costSummary?: Maybe<ComponentCostSummary>;
   createdAt: Scalars['String']['output'];
   hoursSinceInspection: Scalars['Float']['output'];
   hoursSinceService: Scalars['Float']['output'];
@@ -426,6 +456,9 @@ export type Component = {
   pairGroupId?: Maybe<Scalars['String']['output']>;
   pairedComponent?: Maybe<Component>;
   priorHours: Scalars['Float']['output'];
+  purchaseCurrency?: Maybe<Scalars['String']['output']>;
+  purchasePriceMinor?: Maybe<Scalars['Int']['output']>;
+  purchasedFrom?: Maybe<Scalars['String']['output']>;
   replacedById?: Maybe<Scalars['ID']['output']>;
   retiredAt?: Maybe<Scalars['String']['output']>;
   serviceDueAtHours?: Maybe<Scalars['Float']['output']>;
@@ -449,6 +482,17 @@ export type ComponentConditionBucket = {
   condition: WeatherCondition;
   durationSeconds: Scalars['Int']['output'];
   rideCount: Scalars['Int']['output'];
+};
+
+export type ComponentCostSummary = {
+  __typename?: 'ComponentCostSummary';
+  currency: Scalars['String']['output'];
+  lifetimeHours: Scalars['Float']['output'];
+  otherCurrencyCount: Scalars['Int']['output'];
+  perHourMinor?: Maybe<Scalars['Float']['output']>;
+  purchaseMinor?: Maybe<Scalars['Int']['output']>;
+  serviceMinor: Scalars['Int']['output'];
+  totalMinor: Scalars['Int']['output'];
 };
 
 export type ComponentCumulativePoint = {
@@ -738,8 +782,11 @@ export type InstallComponentResult = {
 
 export type LogServiceInput = {
   componentId: Scalars['ID']['input'];
+  costMinor?: InputMaybe<Scalars['Int']['input']>;
+  currency?: InputMaybe<Scalars['String']['input']>;
   kind?: InputMaybe<ServiceLogKind>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  parts?: InputMaybe<Array<ServicePartInput>>;
   performedAt?: InputMaybe<Scalars['String']['input']>;
   serviceExtensionHours?: InputMaybe<Scalars['Float']['input']>;
 };
@@ -1110,6 +1157,9 @@ export type NewComponentInput = {
   brand: Scalars['String']['input'];
   isStock?: InputMaybe<Scalars['Boolean']['input']>;
   model: Scalars['String']['input'];
+  purchaseCurrency?: InputMaybe<Scalars['String']['input']>;
+  purchasePriceMinor?: InputMaybe<Scalars['Int']['input']>;
+  purchasedFrom?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type PairedComponentConfigInput = {
@@ -1284,6 +1334,9 @@ export type ReplaceComponentInput = {
   newModel: Scalars['String']['input'];
   pairBrand?: InputMaybe<Scalars['String']['input']>;
   pairModel?: InputMaybe<Scalars['String']['input']>;
+  purchaseCurrency?: InputMaybe<Scalars['String']['input']>;
+  purchasePriceMinor?: InputMaybe<Scalars['Int']['input']>;
+  purchasedFrom?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type ReplaceComponentResult = {
@@ -1500,20 +1553,27 @@ export type RidesFilterInput = {
 export type ServiceEvent = {
   __typename?: 'ServiceEvent';
   component: Component;
+  costMinor?: Maybe<Scalars['Int']['output']>;
+  currency?: Maybe<Scalars['String']['output']>;
   hoursAtService: Scalars['Float']['output'];
   id: Scalars['ID']['output'];
+  kind: ServiceLogKind;
   notes?: Maybe<Scalars['String']['output']>;
+  parts: Array<ServicePart>;
   performedAt: Scalars['String']['output'];
 };
 
 export type ServiceLog = {
   __typename?: 'ServiceLog';
   componentId: Scalars['ID']['output'];
+  costMinor?: Maybe<Scalars['Int']['output']>;
   createdAt: Scalars['String']['output'];
+  currency?: Maybe<Scalars['String']['output']>;
   hoursAtService: Scalars['Float']['output'];
   id: Scalars['ID']['output'];
   kind: ServiceLogKind;
   notes?: Maybe<Scalars['String']['output']>;
+  parts: Array<ServicePart>;
   performedAt: Scalars['String']['output'];
   serviceExtensionHours?: Maybe<Scalars['Float']['output']>;
 };
@@ -1528,6 +1588,22 @@ export enum ServiceNotificationMode {
   HoursBefore = 'HOURS_BEFORE',
   RidesBefore = 'RIDES_BEFORE'
 }
+
+export type ServicePart = {
+  __typename?: 'ServicePart';
+  brand: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  model: Scalars['String']['output'];
+  priceMinor?: Maybe<Scalars['Int']['output']>;
+  vendor?: Maybe<Scalars['String']['output']>;
+};
+
+export type ServicePartInput = {
+  brand?: InputMaybe<Scalars['String']['input']>;
+  model: Scalars['String']['input'];
+  priceMinor?: InputMaybe<Scalars['Int']['input']>;
+  vendor?: InputMaybe<Scalars['String']['input']>;
+};
 
 export type ServicePreferenceDefault = {
   __typename?: 'ServicePreferenceDefault';
@@ -1668,7 +1744,15 @@ export type SharedInstallEvent = {
 export type SharedServiceEvent = {
   __typename?: 'SharedServiceEvent';
   component: SharedComponent;
+  kind: ServiceLogKind;
+  parts: Array<SharedServicePart>;
   performedAt: Scalars['String']['output'];
+};
+
+export type SharedServicePart = {
+  __typename?: 'SharedServicePart';
+  brand: Scalars['String']['output'];
+  model: Scalars['String']['output'];
 };
 
 export type SlotSnapshot = {
@@ -1931,6 +2015,9 @@ export type UpdateComponentInput = {
   model?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   priorHours?: InputMaybe<Scalars['Float']['input']>;
+  purchaseCurrency?: InputMaybe<Scalars['String']['input']>;
+  purchasePriceMinor?: InputMaybe<Scalars['Int']['input']>;
+  purchasedFrom?: InputMaybe<Scalars['String']['input']>;
   serviceDueAtHours?: InputMaybe<Scalars['Float']['input']>;
 };
 
@@ -1950,8 +2037,11 @@ export type UpdateRideInput = {
 };
 
 export type UpdateServiceLogInput = {
+  costMinor?: InputMaybe<Scalars['Int']['input']>;
+  currency?: InputMaybe<Scalars['String']['input']>;
   hoursAtService?: InputMaybe<Scalars['Float']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  parts?: InputMaybe<Array<ServicePartInput>>;
   performedAt?: InputMaybe<Scalars['String']['input']>;
   serviceExtensionHours?: InputMaybe<Scalars['Float']['input']>;
 };
@@ -1962,6 +2052,7 @@ export type UpdateServicePreferencesInput = {
 
 export type UpdateUserPreferencesInput = {
   aiFeaturesEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  currency?: InputMaybe<Scalars['String']['input']>;
   distanceUnit?: InputMaybe<Scalars['String']['input']>;
   expoPushToken?: InputMaybe<Scalars['String']['input']>;
   hoursDisplayPreference?: InputMaybe<Scalars['String']['input']>;
@@ -1981,6 +2072,7 @@ export type User = {
   analyticsOptOut: Scalars['Boolean']['output'];
   avatarUrl?: Maybe<Scalars['String']['output']>;
   createdAt: Scalars['String']['output'];
+  currency?: Maybe<Scalars['String']['output']>;
   distanceUnit?: Maybe<Scalars['String']['output']>;
   email: Scalars['String']['output'];
   garminRidesMissingCoords: Scalars['Int']['output'];

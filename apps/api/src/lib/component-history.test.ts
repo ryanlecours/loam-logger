@@ -1,6 +1,9 @@
 import {
   normalizeTenures,
   mergeWindows,
+  componentWindowsForBike,
+  serviceLogWhereForWindows,
+  windowContaining,
   buildCountedRideWhere,
   aggregateLifetime,
   emptyConditionBuckets,
@@ -552,5 +555,76 @@ describe('condition buckets (Pro gate shape)', () => {
     const windy = buckets.find((b) => b.condition === 'WINDY')!;
     expect(windy.rideCount).toBe(1);
     expect(windy.durationSeconds).toBe(0);
+  });
+});
+
+describe('componentWindowsForBike and serviceLogWhereForWindows', () => {
+  const makeDb = (
+    installs: Array<{ id: string; bikeId: string; componentId: string; slotKey: string; installedAt: Date; removedAt: Date | null }>,
+    components: Array<HistoryComponent>
+  ) =>
+    ({
+      bikeComponentInstall: {
+        findMany: jest.fn(async ({ where }: { where: { bikeId: string } }) =>
+          installs.filter((i) => i.bikeId === where.bikeId)
+        ),
+      },
+      component: {
+        findMany: jest.fn(async ({ where }: { where: { OR: Array<{ id?: { in: string[] }; bikeId?: string }> } }) => {
+          const ids = new Set<string>();
+          for (const b of where.OR) {
+            b.id?.in.forEach((id) => ids.add(id));
+            if (b.bikeId) components.filter((c) => c.bikeId === b.bikeId).forEach((c) => ids.add(c.id));
+          }
+          return components.filter((c) => ids.has(c.id));
+        }),
+      },
+    }) as unknown as Parameters<typeof componentWindowsForBike>[0];
+
+  it('keeps one window per component tenure on the bike, closing open rows at retirement', async () => {
+    const retiredAt = d('2026-01-01T00:00:00Z');
+    const db = makeDb(
+      [
+        { ...row({ id: 'i1', installedAt: d('2025-01-01T00:00:00Z'), removedAt: null }), componentId: 'old' },
+        { ...row({ id: 'i2', installedAt: d('2026-01-01T00:00:00Z'), removedAt: null }), componentId: 'new' },
+      ],
+      [
+        component({ id: 'old', bikeId: null, retiredAt }),
+        component({ id: 'new', installedAt: d('2026-01-01T00:00:00Z') }),
+      ]
+    );
+
+    const windows = await componentWindowsForBike(db, 'bike-1', 'user-1', NOW);
+    expect(windows).toEqual([
+      { componentId: 'old', start: d('2025-01-01T00:00:00Z'), end: retiredAt },
+      { componentId: 'new', start: d('2026-01-01T00:00:00Z'), end: NOW },
+    ]);
+
+    const where = serviceLogWhereForWindows(windows);
+    expect(where).toEqual({
+      OR: [
+        { componentId: 'old', performedAt: { gte: d('2025-01-01T00:00:00Z'), lt: retiredAt } },
+        { componentId: 'new', performedAt: { gte: d('2026-01-01T00:00:00Z'), lt: NOW } },
+      ],
+    });
+  });
+
+  it('synthesises a window for a component that claims the bike without an install row', async () => {
+    const db = makeDb([], [component({ id: 'drifted', installedAt: d('2025-03-01T00:00:00Z') })]);
+    const windows = await componentWindowsForBike(db, 'bike-1', 'user-1', NOW);
+    expect(windows).toEqual([{ componentId: 'drifted', start: d('2025-03-01T00:00:00Z'), end: NOW }]);
+  });
+
+  it('returns no windows and a null predicate for a bike with nothing installed', async () => {
+    const windows = await componentWindowsForBike(makeDb([], []), 'bike-1', 'user-1', NOW);
+    expect(windows).toEqual([]);
+    expect(serviceLogWhereForWindows(windows)).toBeNull();
+  });
+
+  it('places a service on the bike only while the part was on it', () => {
+    const windows = [{ componentId: 'c', start: d('2025-01-01T00:00:00Z'), end: d('2026-01-01T00:00:00Z') }];
+    expect(windowContaining(windows, 'c', d('2025-06-01T00:00:00Z'))).toBe(windows[0]);
+    expect(windowContaining(windows, 'c', d('2026-01-01T00:00:00Z'))).toBeNull();
+    expect(windowContaining(windows, 'other', d('2025-06-01T00:00:00Z'))).toBeNull();
   });
 });

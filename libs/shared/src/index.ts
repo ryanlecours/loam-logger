@@ -26,3 +26,6 @@ export * from './legal/trail-stewardship';
 
 // Garmin brand compliance
 export * from './garmin/attribution';
+
+// Currency
+export * from './currency';

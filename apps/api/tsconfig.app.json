@@ -5,7 +5,10 @@
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "types": ["node"],
-    "paths": { "@/*": ["./src/*"] },
+    "paths": {
+      "@/*": ["./src/*"],
+      "@loam/shared": ["../../libs/shared/src/index.ts"]
+    },
     "outDir": "../../dist/apps/api",
     "jsx": "react-jsx"
   },
