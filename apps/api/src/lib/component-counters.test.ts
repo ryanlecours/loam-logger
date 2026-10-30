@@ -2,6 +2,7 @@ import {
   computeComponentCounters,
   recomputeComponentCounters,
   recomputeComponents,
+  recomputeCountersForBikes,
   creditRideToComponents,
   lifetimeHoursAt,
 } from './component-counters';
@@ -664,6 +665,98 @@ describe('recomputeComponents', () => {
     const locked = tx.$executeRaw.mock.calls.map(([, id]) => id);
     expect(locked).toEqual(['c-a', 'c-b', 'c-c']);
     expect(bikeIds.sort()).toEqual(['bike-1', 'bike-2']);
+  });
+});
+
+describe('recomputeCountersForBikes', () => {
+  const candidatesByBike: Record<string, string[]> = {
+    'bike-1': ['c-b', 'c-shared'],
+    'bike-2': ['c-a', 'c-shared'],
+  };
+  const bikeOf: Record<string, string | null> = {
+    'c-a': 'bike-2',
+    'c-b': 'bike-1',
+    'c-shared': 'bike-1',
+    'c-include': 'bike-3',
+  };
+
+  const makeBikesTx = () => {
+    const tx = makeTx({ installs: [OPEN_TENURE] });
+    tx.component.findMany.mockImplementation(
+      async ({ where }: { where: { OR: Array<{ bikeId?: string }> } }) =>
+        (candidatesByBike[where.OR[0].bikeId!] ?? []).map((id) => ({ id }))
+    );
+    tx.component.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({
+      id: where.id,
+      userId: 'user-1',
+      bikeId: bikeOf[where.id],
+      installedAt: d('2025-01-01T00:00:00Z'),
+      createdAt: d('2025-01-01T00:00:00Z'),
+      retiredAt: null,
+      hoursUsed: 0,
+      priorHours: 0,
+    }));
+    return tx;
+  };
+
+  const lockedIds = (tx: MockTx) =>
+    tx.$executeRaw.mock.calls
+      .filter(([strings]) => (strings as string[]).join('?').includes('WHERE "id" = ? FOR UPDATE'))
+      .map(([, id]) => id);
+
+  // A part that has been on two of the bikes is a candidate of both. It must be
+  // recomputed once, and every lock must follow one global order, or two
+  // concurrent duplicate merges could deadlock on it.
+  it('recomputes every candidate once, in one global lock order', async () => {
+    const tx = makeBikesTx();
+
+    const bikeIds = await recomputeCountersForBikes(asTx(tx), {
+      userId: 'user-1',
+      bikeIds: ['bike-2', 'bike-1'],
+      componentIds: ['c-include'],
+    });
+
+    expect(lockedIds(tx)).toEqual(['c-a', 'c-b', 'c-include', 'c-shared']);
+    expect(bikeIds.sort()).toEqual(['bike-1', 'bike-2', 'bike-3']);
+  });
+
+  it('moves legacy hoursUsed only on the bikes given a delta, and only on uncomputed parts', async () => {
+    const tx = makeBikesTx();
+
+    await recomputeCountersForBikes(asTx(tx), {
+      userId: 'user-1',
+      bikeIds: ['bike-1', 'bike-2'],
+      legacyHoursDelta: new Map([['bike-1', -2.5]]),
+    });
+
+    expect(tx.component.updateMany).toHaveBeenCalledTimes(1);
+    expect(tx.component.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', bikeId: 'bike-1', countersComputedAt: null },
+      data: { hoursUsed: { increment: -2.5 } },
+    });
+  });
+
+  // The production drift this exists for: a merge deleted 83h of duplicate
+  // rides and only hoursUsed was lowered, so hoursSinceService kept charging
+  // the part for them. A recompute derives all four columns from the rides
+  // that remain.
+  it('re-derives every counter from the rides that remain', async () => {
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      rides: [
+        ride('kept', 'bike-1', '2025-02-01T00:00:00Z', 3),
+        { ...ride('flagged', 'bike-1', '2025-02-01T00:05:00Z', 3), isDuplicate: true },
+      ],
+      logs: [],
+      candidates: [{ id: 'comp-1' }],
+    });
+
+    await recomputeCountersForBikes(asTx(tx), { userId: 'user-1', bikeIds: ['bike-1'] });
+
+    expect(tx.component.update).toHaveBeenCalledWith({
+      where: { id: 'comp-1' },
+      data: expect.objectContaining({ lifetimeHours: 3, hoursSinceService: 3, hoursUsed: 3 }),
+    });
   });
 });
 
