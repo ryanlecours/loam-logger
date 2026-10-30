@@ -101,6 +101,9 @@ import {
   MAX_SHARES_PER_COMPONENT,
 } from '../lib/component-share';
 import { captureSetupSnapshot } from '../lib/capture-snapshot';
+import { componentCostSummary, bikeCostSummary, sumServiceSpend } from '../lib/cost-summary';
+import { componentWindowsForBike, serviceLogWhereForWindows } from '../lib/component-history';
+import { isSupportedCurrency, MAX_AMOUNT_MINOR, SUPPORTED_CURRENCIES } from '@loam/shared';
 import { elevationLossFromProvider } from '../lib/elevation-loss';
 import type { SetupSnapshot } from '@loam/shared';
 import { randomBytes } from 'crypto';
@@ -184,7 +187,14 @@ export type PairedComponentConfigInputGQL = {
   rearSpec?: PairedComponentSpecInputGQL | null;
 };
 
-type ReplaceComponentInputGQL = {
+/** What the rider paid for a part, as the clients send it. */
+type PurchaseInputGQL = {
+  purchasePriceMinor?: number | null;
+  purchaseCurrency?: string | null;
+  purchasedFrom?: string | null;
+};
+
+type ReplaceComponentInputGQL = PurchaseInputGQL & {
   componentId: string;
   newBrand: string;
   newModel: string;
@@ -194,10 +204,17 @@ type ReplaceComponentInputGQL = {
   installedAt?: string | null;
 };
 
-type NewComponentInputGQL = {
+type NewComponentInputGQL = PurchaseInputGQL & {
   brand: string;
   model: string;
   isStock?: boolean | null;
+};
+
+type ServicePartInputGQL = {
+  brand?: string | null;
+  model: string;
+  priceMinor?: number | null;
+  vendor?: string | null;
 };
 
 type InstallComponentInputGQL = {
@@ -253,6 +270,8 @@ type AddBikeInputGQL = {
   batteryWh?: number | null;
   acquisitionCondition?: AcquisitionCondition | null;
   acquisitionDate?: string | null;
+  purchasePriceMinor?: number | null;
+  purchaseCurrency?: string | null;
   spokesComponents?: SpokesComponentsInputGQL | null;
   fork?: BikeComponentInputGQL | null;
   shock?: BikeComponentInputGQL | null;
@@ -277,7 +296,7 @@ type UpdateBikeInputGQL = Partial<AddBikeInputGQL> & {
   year?: number | null;
 };
 
-type AddComponentInputGQL = {
+type AddComponentInputGQL = PurchaseInputGQL & {
   type: ComponentType;
   location?: ComponentLocation | null;
   brand?: string | null;
@@ -289,7 +308,7 @@ type AddComponentInputGQL = {
   installedAt?: string | null;
 };
 
-type UpdateComponentInputGQL = {
+type UpdateComponentInputGQL = PurchaseInputGQL & {
   location?: ComponentLocation | null;
   brand?: string | null;
   model?: string | null;
@@ -574,6 +593,100 @@ const validateServicePreferences = (
       }
     }
   }
+};
+
+// ---------------------------------------------------------------------------
+// Money. Amounts are integer minor units with an ISO 4217 code beside them;
+// the clients convert what the rider typed. Null means "not recorded", so the
+// validators distinguish null (clear) from undefined (leave alone) like the
+// rest of the update inputs do.
+// ---------------------------------------------------------------------------
+
+const MAX_SERVICE_PARTS = 20;
+
+const badInput = (message: string) =>
+  new GraphQLError(message, { extensions: { code: 'BAD_USER_INPUT' } });
+
+/** A recorded amount: a non-negative integer of minor units under the cap. */
+const assertMinorAmount = (field: string, value: number) => {
+  if (!Number.isInteger(value) || value < 0 || value > MAX_AMOUNT_MINOR) {
+    throw badInput(`${field} must be a whole number of minor units between 0 and ${MAX_AMOUNT_MINOR}`);
+  }
+};
+
+const assertCurrency = (value: string) => {
+  if (!isSupportedCurrency(value)) {
+    throw badInput(`Unsupported currency. Must be one of: ${SUPPORTED_CURRENCIES.join(', ')}`);
+  }
+};
+
+/**
+ * The currency an amount is recorded in: the one sent, else the rider's
+ * Settings currency, else the default. Only looked up when an amount is
+ * actually present, so a plain service log costs no extra query.
+ */
+const resolveCurrency = async (
+  db: Prisma.TransactionClient | typeof prisma,
+  userId: string,
+  sent: string | null | undefined
+): Promise<string> => {
+  if (sent) {
+    assertCurrency(sent);
+    return sent;
+  }
+  const user = await db.user.findUnique({ where: { id: userId }, select: { currency: true } });
+  return user?.currency ?? 'USD';
+};
+
+/** Validated, trimmed parts in the rider's order; [] when none were sent. */
+const normalizeServiceParts = (parts: ServicePartInputGQL[] | null | undefined) => {
+  if (!parts) return [];
+  if (parts.length > MAX_SERVICE_PARTS) {
+    throw badInput(`A service can list at most ${MAX_SERVICE_PARTS} parts`);
+  }
+  return parts.map((p, index) => {
+    const model = cleanText(p.model, MAX_LABEL_LEN);
+    if (!model) throw badInput('Each part needs a model or description');
+    if (p.priceMinor != null) assertMinorAmount('priceMinor', p.priceMinor);
+    return {
+      brand: cleanText(p.brand, MAX_LABEL_LEN) ?? '',
+      model,
+      priceMinor: p.priceMinor ?? null,
+      vendor: cleanText(p.vendor, MAX_LABEL_LEN) ?? null,
+      sortOrder: index,
+    };
+  });
+};
+
+/**
+ * The purchase columns to write for a component or bike, from the optional
+ * purchase fields on its input. Undefined keys are left out so an update that
+ * never mentioned the price leaves it alone; null clears it. A price always
+ * carries a currency: the sent one, else the rider's, else USD.
+ */
+const normalizePurchaseInput = async (
+  db: Prisma.TransactionClient | typeof prisma,
+  userId: string,
+  input: PurchaseInputGQL
+): Promise<{ purchasePriceMinor?: number | null; purchaseCurrency?: string | null; purchasedFrom?: string | null }> => {
+  const out: { purchasePriceMinor?: number | null; purchaseCurrency?: string | null; purchasedFrom?: string | null } = {};
+  if (input.purchasePriceMinor !== undefined) {
+    if (input.purchasePriceMinor === null) {
+      out.purchasePriceMinor = null;
+      out.purchaseCurrency = null;
+    } else {
+      assertMinorAmount('purchasePriceMinor', input.purchasePriceMinor);
+      out.purchasePriceMinor = input.purchasePriceMinor;
+      out.purchaseCurrency = await resolveCurrency(db, userId, input.purchaseCurrency);
+    }
+  } else if (input.purchaseCurrency != null) {
+    assertCurrency(input.purchaseCurrency);
+    out.purchaseCurrency = input.purchaseCurrency;
+  }
+  if (input.purchasedFrom !== undefined) {
+    out.purchasedFrom = cleanText(input.purchasedFrom, MAX_LABEL_LEN) ?? null;
+  }
+  return out;
 };
 
 const normalizeBikeComponentInput = (
@@ -2082,11 +2195,20 @@ export const resolvers = {
       const SERVICE_CAP = 1000;
       const INSTALL_CAP = 1000;
 
+      // Services belong to the bike the part was ON when the work was done, not
+      // to the part's current bike. Filtering by Component.bikeId dropped every
+      // service on a part since replaced, moved or retired, which is most of a
+      // bike's history once it is a few seasons old. The windows come from all
+      // of the bike's install rows (not the date-filtered list below), one
+      // indexable branch per component tenure.
+      const windows = await componentWindowsForBike(prisma, bikeId, userId);
+      const serviceWhere = serviceLogWhereForWindows(windows);
+
       // Defense-in-depth: even though bike ownership is pre-validated above,
       // every sub-query redundantly filters by userId (directly where the
       // column exists, or via the joined Component) so a future refactor
       // that skips the ownership check above still can't leak cross-user data.
-      const [rides, serviceLogs, installs] = await Promise.all([
+      const [rides, serviceLogs, installs, viewer] = await Promise.all([
         prisma.ride.findMany({
           where: {
             userId,
@@ -2113,15 +2235,22 @@ export const resolvers = {
             location: true,
           },
         }),
-        prisma.serviceLog.findMany({
-          where: {
-            component: { bikeId, userId },
-            ...(dateRange ? { performedAt: dateRange } : {}),
-          },
-          include: { component: true },
-          orderBy: { performedAt: 'desc' },
-          take: SERVICE_CAP,
-        }),
+        serviceWhere
+          ? prisma.serviceLog.findMany({
+              where: {
+                AND: [
+                  serviceWhere,
+                  { component: { userId } },
+                  ...(dateRange ? [{ performedAt: dateRange }] : []),
+                ],
+              },
+              // Parts come along in the same query: the history page renders
+              // every log's parts, so the per-log loader would only add trips.
+              include: { component: true, parts: { orderBy: { sortOrder: 'asc' } } },
+              orderBy: { performedAt: 'desc' },
+              take: SERVICE_CAP,
+            })
+          : Promise.resolve([]),
         // Each BikeComponentInstall row carries TWO potential timeline
         // events (installedAt, and optionally removedAt). The OR filter
         // selects any row where *either* date touches the range, because
@@ -2149,6 +2278,9 @@ export const resolvers = {
           orderBy: { installedAt: 'desc' },
           take: INSTALL_CAP,
         }),
+        // The rider's Settings currency decides which currency the spend total
+        // is summed in; amounts in any other are counted, never converted.
+        prisma.user.findUnique({ where: { id: userId }, select: { currency: true } }),
       ]);
 
       const serviceEvents = serviceLogs.map((log) => ({
@@ -2156,8 +2288,14 @@ export const resolvers = {
         performedAt: log.performedAt.toISOString(),
         notes: log.notes,
         hoursAtService: log.hoursAtService,
+        kind: log.kind,
+        costMinor: log.costMinor,
+        currency: log.currency,
+        parts: log.parts,
         component: log.component,
       }));
+
+      const spend = sumServiceSpend(serviceLogs, viewer?.currency);
 
       const installEvents: Array<{
         id: string;
@@ -2223,6 +2361,7 @@ export const resolvers = {
           totalElevationGainMeters,
           serviceEventCount: serviceEvents.length,
           installEventCount: installEvents.length,
+          ...spend,
         },
         truncated:
           rides.length >= RIDE_CAP ||
@@ -2306,18 +2445,28 @@ export const resolvers = {
       const SERVICE_CAP = 1000;
       const INSTALL_CAP = 1000;
 
+      // Same tenure attribution as bikeHistory, so a buyer sees the work done
+      // on this bike's parts while they were on it, replaced parts included.
+      const sharedWindows = await componentWindowsForBike(prisma, bike.id, bike.userId);
+      const sharedServiceWhere = serviceLogWhereForWindows(sharedWindows);
+
       const [serviceLogs, installs, rideAgg, garminRide, stravaRide, whoopRide, suuntoRide] = await Promise.all([
-        prisma.serviceLog.findMany({
-          where: { component: { bikeId: bike.id } },
-          // Explicit select (not include) so freeform notes never leave the DB
-          // on this unauthenticated path.
-          select: {
-            performedAt: true,
-            component: { select: { type: true, location: true, brand: true, model: true } },
-          },
-          orderBy: { performedAt: 'desc' },
-          take: SERVICE_CAP,
-        }),
+        sharedServiceWhere
+          ? prisma.serviceLog.findMany({
+              where: sharedServiceWhere,
+              // Explicit select (not include) so freeform notes, costs and vendors
+              // never leave the DB on this unauthenticated path. Parts carry brand
+              // and model only.
+              select: {
+                performedAt: true,
+                kind: true,
+                component: { select: { type: true, location: true, brand: true, model: true } },
+                parts: { select: { brand: true, model: true }, orderBy: { sortOrder: 'asc' } },
+              },
+              orderBy: { performedAt: 'desc' },
+              take: SERVICE_CAP,
+            })
+          : Promise.resolve([]),
         prisma.bikeComponentInstall.findMany({
           where: { bikeId: bike.id },
           include: { component: { select: { type: true, location: true, brand: true, model: true } } },
@@ -2355,7 +2504,9 @@ export const resolvers = {
 
       const serviceEvents = serviceLogs.map((log) => ({
         performedAt: log.performedAt.toISOString(),
+        kind: log.kind,
         component: toSharedComponent(log.component),
+        parts: log.parts.map((p) => ({ brand: p.brand, model: p.model })),
       }));
 
       const installEvents = installs.flatMap((install) => {
@@ -2985,6 +3136,7 @@ export const resolvers = {
         if (parsed > new Date()) throw new Error('acquisitionDate cannot be in the future');
         acquisitionDate = parsed;
       }
+      const bikePurchase = await normalizePurchaseInput(prisma, userId, input);
 
       // Derive BikeSpec for dynamic component creation. isEbike gates the
       // EBIKE-category components (motor, battery), which is why it is threaded
@@ -3023,6 +3175,8 @@ export const resolvers = {
             batteryWh,
             acquisitionCondition,
             acquisitionDate,
+            purchasePriceMinor: bikePurchase.purchasePriceMinor ?? null,
+            purchaseCurrency: bikePurchase.purchaseCurrency ?? null,
             userId,
           },
         });
@@ -3128,6 +3282,9 @@ export const resolvers = {
       // those hours were really ridden. The e-bike gate is enforced at install
       // and swap time only, never retroactively.
       if (input.isEbike !== undefined) data.isEbike = Boolean(input.isEbike);
+      const bikePurchase = await normalizePurchaseInput(prisma, userId, input);
+      if (bikePurchase.purchasePriceMinor !== undefined) data.purchasePriceMinor = bikePurchase.purchasePriceMinor;
+      if (bikePurchase.purchaseCurrency !== undefined) data.purchaseCurrency = bikePurchase.purchaseCurrency;
       if (input.gender !== undefined) data.gender = cleanText(input.gender, MAX_LABEL_LEN) ?? null;
       if (input.frameMaterial !== undefined) data.frameMaterial = cleanText(input.frameMaterial, MAX_LABEL_LEN) ?? null;
       if (input.hangerStandard !== undefined) data.hangerStandard = cleanText(input.hangerStandard, MAX_LABEL_LEN) ?? null;
@@ -3305,6 +3462,8 @@ export const resolvers = {
         throw new Error(`${typeName} requires a location (FRONT or REAR)`);
       }
 
+      const purchase = await normalizePurchaseInput(prisma, userId, input);
+
       try {
         const now = new Date();
         const location = input.location ?? 'NONE';
@@ -3324,6 +3483,7 @@ export const resolvers = {
           const created = await tx.component.create({
             data: {
               ...normalizeLooseComponentInput(type, input),
+              ...purchase,
               type,
               location,
               bikeId: bikeId ?? null,
@@ -3354,6 +3514,14 @@ export const resolvers = {
 
           return created;
         });
+
+        if (purchase.purchasePriceMinor != null) {
+          captureServerEvent(userId, 'component_purchase_recorded', {
+            componentId: component.id,
+            source: 'add',
+            has_vendor: purchase.purchasedFrom != null,
+          });
+        }
 
         return component;
       } catch (error) {
@@ -3395,6 +3563,7 @@ export const resolvers = {
         hoursUsed: existing.hoursUsed,
         serviceDueAtHours: existing.serviceDueAtHours,
       });
+      const purchase = await normalizePurchaseInput(prisma, userId, input);
 
       // Invalidate prediction cache BEFORE update to prevent stale reads
       if (existing.bikeId) {
@@ -3409,6 +3578,7 @@ export const resolvers = {
           where: { id },
           data: {
             ...normalized,
+            ...purchase,
             ...(input.location !== undefined && input.location !== null && { location: input.location }),
             ...(input.priorHours !== undefined &&
               input.priorHours !== null && { priorHours: input.priorHours }),
@@ -3426,6 +3596,14 @@ export const resolvers = {
       // Invalidate prediction cache after update
       if (existing.bikeId) {
         await invalidateBikePrediction(userId, existing.bikeId);
+      }
+
+      if (purchase.purchasePriceMinor != null && purchase.purchasePriceMinor !== existing.purchasePriceMinor) {
+        captureServerEvent(userId, 'component_purchase_recorded', {
+          componentId: id,
+          source: 'edit',
+          has_vendor: (purchase.purchasedFrom ?? existing.purchasedFrom) != null,
+        });
       }
 
       return updated;
@@ -3537,6 +3715,9 @@ export const resolvers = {
           performedAt?: string | null;
           kind?: 'SERVICE' | 'INSPECTION' | null;
           serviceExtensionHours?: number | null;
+          costMinor?: number | null;
+          currency?: string | null;
+          parts?: ServicePartInputGQL[] | null;
         };
       },
       ctx: GraphQLContext
@@ -3595,6 +3776,15 @@ export const resolvers = {
       }
       const notes = input.notes ? cleanText(input.notes, MAX_NOTES_LEN) : null;
 
+      // Parts and cost. Validated before anything is written; the currency is
+      // resolved only when there is an amount to record, so the common
+      // "just log it" path adds no query.
+      const parts = normalizeServiceParts(input.parts);
+      if (input.costMinor != null) assertMinorAmount('costMinor', input.costMinor);
+      const costMinor = input.costMinor ?? null;
+      const hasAmount = costMinor != null || parts.some((p) => p.priceMinor != null);
+      const currency = hasAmount ? await resolveCurrency(prisma, userId, input.currency) : null;
+
       // Invalidate prediction cache BEFORE transaction to prevent stale reads
       if (component.bikeId) {
         await invalidateBikePrediction(userId, component.bikeId);
@@ -3611,9 +3801,17 @@ export const resolvers = {
             notes,
             kind,
             serviceExtensionHours,
+            costMinor,
+            currency,
             hoursAtService: await lifetimeHoursAt(tx, input.componentId, performedAt),
           },
         });
+
+        if (parts.length > 0) {
+          await tx.servicePart.createMany({
+            data: parts.map((p) => ({ ...p, serviceLogId: log.id })),
+          });
+        }
 
         // Recompute instead of hardcoding 0 — backdated services count the
         // rides after them, and per-ride adjustments stay applied. See the
@@ -3636,6 +3834,19 @@ export const resolvers = {
       // Clear notification dedup logs so this component can trigger notifications again
       clearServiceNotificationLogs(input.componentId, userId).catch((err) => logError('clearServiceNotificationLogs', err));
 
+      // Same event logComponentService fires, so "services logged" is one
+      // series whichever mutation a client uses. Amounts stay out of the
+      // event stream; whether one was recorded is what adoption needs.
+      captureServerEvent(userId, 'component_serviced', {
+        componentId: input.componentId,
+        bikeId: component.bikeId,
+        kind,
+        has_cost: costMinor != null,
+        part_count: parts.length,
+        has_vendor: parts.some((p) => p.vendor != null),
+        surface: 'logService',
+      });
+
       return serviceLog;
     },
 
@@ -3651,6 +3862,9 @@ export const resolvers = {
           notes?: string | null;
           hoursAtService?: number | null;
           serviceExtensionHours?: number | null;
+          costMinor?: number | null;
+          currency?: string | null;
+          parts?: ServicePartInputGQL[] | null;
         };
       },
       ctx: GraphQLContext
@@ -3720,6 +3934,27 @@ export const resolvers = {
         }
       }
 
+      // Parts and cost. costMinor: null clears, undefined leaves alone. parts
+      // is replace-all when sent. A currency is written whenever an amount is
+      // (sent, else the rider's, else the log's existing one).
+      const newParts = input.parts === undefined ? undefined : normalizeServiceParts(input.parts);
+      let newCostMinor: number | null | undefined;
+      if (input.costMinor !== undefined) {
+        if (input.costMinor !== null) assertMinorAmount('costMinor', input.costMinor);
+        newCostMinor = input.costMinor;
+      }
+      const amountPresent =
+        (newCostMinor !== undefined ? newCostMinor != null : existing.costMinor != null) ||
+        (newParts ?? []).some((p) => p.priceMinor != null);
+      let newCurrency: string | null | undefined;
+      if (input.currency != null) {
+        assertCurrency(input.currency);
+        newCurrency = input.currency;
+      } else if (amountPresent && !existing.currency) {
+        newCurrency = await resolveCurrency(prisma, userId, null);
+      }
+      const costChanged = newCostMinor !== undefined && newCostMinor !== existing.costMinor;
+
       const bikeId = existing.component.bikeId;
       if (bikeId) await invalidateBikePrediction(userId, bikeId);
 
@@ -3735,8 +3970,19 @@ export const resolvers = {
               ? { hoursAtService: newHoursAtService, hoursAtServiceDeclared: true }
               : {}),
             ...(newExtension !== undefined ? { serviceExtensionHours: newExtension } : {}),
+            ...(newCostMinor !== undefined ? { costMinor: newCostMinor } : {}),
+            ...(newCurrency !== undefined ? { currency: newCurrency } : {}),
           },
         });
+
+        if (newParts !== undefined) {
+          await tx.servicePart.deleteMany({ where: { serviceLogId: id } });
+          if (newParts.length > 0) {
+            await tx.servicePart.createMany({
+              data: newParts.map((p) => ({ ...p, serviceLogId: id })),
+            });
+          }
+        }
 
         // Recompute whenever the edit can change a reading, which log is latest,
         // or the current cycle's extension. A new date re-derives this log's
@@ -3750,6 +3996,18 @@ export const resolvers = {
       });
 
       if (bikeId) await invalidateBikePrediction(userId, bikeId);
+
+      // Whether riders come back to fill in what a service cost.
+      if (costChanged || newParts !== undefined) {
+        captureServerEvent(userId, 'service_log_updated', {
+          componentId: existing.component.id,
+          bikeId,
+          cost_added: existing.costMinor == null && newCostMinor != null,
+          cost_changed: costChanged,
+          parts_changed: newParts !== undefined,
+          part_count: newParts?.length ?? null,
+        });
+      }
 
       return updated;
     },
@@ -4901,7 +5159,7 @@ export const resolvers = {
 
     updateUserPreferences: async (
       _: unknown,
-      { input }: { input: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean | null; rideSyncNotificationMode?: 'ALL' | 'ACTION_NEEDED' | 'OFF' | null; weeklyDigestEnabled?: boolean | null; aiFeaturesEnabled?: boolean | null; timezone?: string | null } },
+      { input }: { input: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; currency?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean | null; rideSyncNotificationMode?: 'ALL' | 'ACTION_NEEDED' | 'OFF' | null; weeklyDigestEnabled?: boolean | null; aiFeaturesEnabled?: boolean | null; timezone?: string | null } },
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
@@ -4913,7 +5171,7 @@ export const resolvers = {
         });
       }
 
-      const updateData: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean; rideSyncNotificationMode?: 'ALL' | 'ACTION_NEEDED' | 'OFF'; weeklyDigestEnabled?: boolean; aiFeaturesEnabled?: boolean; timezone?: string | null } = {};
+      const updateData: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; currency?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean; rideSyncNotificationMode?: 'ALL' | 'ACTION_NEEDED' | 'OFF'; weeklyDigestEnabled?: boolean; aiFeaturesEnabled?: boolean; timezone?: string | null } = {};
 
       if (input.hoursDisplayPreference !== undefined) {
         // Input length validation to prevent DoS/excessive storage
@@ -4953,6 +5211,12 @@ export const resolvers = {
           requirePro(user, 'Predictive mode');
         }
         updateData.predictionMode = input.predictionMode;
+      }
+
+      if (input.currency !== undefined) {
+        if (input.currency !== null) assertCurrency(input.currency);
+        updateData.currency = input.currency;
+        captureServerEvent(userId, 'currency_preference_set', { currency: input.currency });
       }
 
       if (input.distanceUnit !== undefined) {
@@ -5791,6 +6055,10 @@ export const resolvers = {
         installedAt = parsed;
       }
 
+      // What the rider paid for the replacement. The paired part, when also
+      // replaced, is assumed bought together and shares it.
+      const purchase = await normalizePurchaseInput(prisma, userId, input);
+
       const replacedComponents: ComponentModel[] = [];
       const newComponents: ComponentModel[] = [];
 
@@ -5824,6 +6092,7 @@ export const resolvers = {
             brand: newBrand,
             model: newModel,
             isStock: false,
+            ...purchase,
             hoursUsed: 0,
             installedAt,
             baselineWearPercent: 0,
@@ -5898,6 +6167,7 @@ export const resolvers = {
                 brand: pairBrand || newBrand,
                 model: pairModel || newModel,
                 isStock: false,
+                ...purchase,
                 hoursUsed: 0,
                 installedAt,
                 baselineWearPercent: 0,
@@ -5940,6 +6210,16 @@ export const resolvers = {
           await invalidateBikePrediction(userId, existingComponent.bikeId);
         }
       });
+
+      if (purchase.purchasePriceMinor != null) {
+        for (const created of newComponents) {
+          captureServerEvent(userId, 'component_purchase_recorded', {
+            componentId: created.id,
+            source: 'replace',
+            has_vendor: purchase.purchasedFrom != null,
+          });
+        }
+      }
 
       return { replacedComponents, newComponents };
     },
@@ -6023,6 +6303,13 @@ export const resolvers = {
       let displacedComponent: ComponentModel | null = null;
       let createdNote: { id: string; bikeId: string; userId: string; text: string; noteType: string; createdAt: Date; snapshot: unknown; snapshotBefore: unknown; snapshotAfter: unknown; installEventId: string | null } | null = null;
       const bikesToInvalidate = new Set<string>([bikeId]);
+
+      // What the rider paid for a new part, validated before the transaction.
+      // A paired slot without its own price shares the main part's.
+      const newPurchase = newComponent ? await normalizePurchaseInput(prisma, userId, newComponent) : {};
+      const pairPurchase = pairNewComponent
+        ? await normalizePurchaseInput(prisma, userId, pairNewComponent)
+        : newPurchase;
 
       // Honor user-specified install date. Default to today if omitted. All
       // derived timestamps inside the transaction use this same value so the
@@ -6141,6 +6428,7 @@ export const resolvers = {
               brand: newComponent.brand,
               model: newComponent.model,
               isStock: newComponent.isStock ?? false,
+              ...newPurchase,
               hoursUsed: 0,
               installedAt: now,
               baselineWearPercent: 0,
@@ -6232,6 +6520,7 @@ export const resolvers = {
                 brand: pairSpec.brand,
                 model: pairSpec.model,
                 isStock: pairSpec.isStock ?? false,
+                ...pairPurchase,
                 hoursUsed: 0,
                 installedAt: now,
                 baselineWearPercent: 0,
@@ -6338,7 +6627,18 @@ export const resolvers = {
         componentType: slotType,
         isNewComponent: Boolean(newComponent),
         displaced: Boolean(displacedComponent),
+        has_purchase_price: newPurchase.purchasePriceMinor != null,
       });
+      // Assigned inside the transaction callback above, which TypeScript's
+      // narrowing does not follow; widen it back before reading.
+      const installedForEvent = installedComponent as ComponentModel | null;
+      if (newPurchase.purchasePriceMinor != null && installedForEvent) {
+        captureServerEvent(userId, 'component_purchase_recorded', {
+          componentId: installedForEvent.id,
+          source: 'install',
+          has_vendor: newPurchase.purchasedFrom != null,
+        });
+      }
 
       // Tenures just changed, so every affected part's counters must be rebuilt
       // from the ledger. These paths previously recomputed nothing at all: a
@@ -7174,6 +7474,20 @@ export const resolvers = {
       if (suunto) sources.push('suunto');
       return sources;
     },
+    /**
+     * What this bike has cost to own and keep running, per ride hour. Pro
+     * only, owner only; null for Free (see Component.costSummary for why
+     * null and not zeros). Resolved only when selected, so list queries that
+     * never ask for it pay nothing.
+     */
+    costSummary: async (bike: Bike, _args: unknown, ctx: GraphQLContext) => {
+      const userId = ctx.user?.id;
+      if (!userId || bike.userId !== userId) return null;
+      const tierUser = await ctx.loaders.tierUserById.load(userId);
+      if (!tierUser || !isProTier(tierUser)) return null;
+      const viewer = await prisma.user.findUnique({ where: { id: userId }, select: { currency: true } });
+      return bikeCostSummary(prisma, bike, viewer?.currency);
+    },
     predictions: async (bike: Bike, _args: unknown, ctx: GraphQLContext) => {
       const userId = ctx.user?.id;
       if (!userId) return null;
@@ -7505,6 +7819,20 @@ export const resolvers = {
       ctx.loaders.serviceLogsByComponentId.load(component.id),
     latestServiceLog: (component: ComponentModel, _args: unknown, ctx: GraphQLContext) =>
       ctx.loaders.latestServiceLogByComponentId.load(component.id),
+    /**
+     * What this part has cost over its life, per ride hour. Pro only, owner
+     * only. Null rather than zeros for Free (unlike conditions, which returns
+     * an empty set): "$0 per hour" would be a false fact, where an absent one
+     * is just absent, and the client shows the Pro chip in its place.
+     */
+    costSummary: async (component: ComponentModel, _args: unknown, ctx: GraphQLContext) => {
+      const userId = ctx.user?.id;
+      if (!userId || component.userId !== userId) return null;
+      const tierUser = await ctx.loaders.tierUserById.load(userId);
+      if (!tierUser || !isProTier(tierUser)) return null;
+      const viewer = await prisma.user.findUnique({ where: { id: userId }, select: { currency: true } });
+      return componentCostSummary(prisma, component, viewer?.currency);
+    },
     pairedComponent: async (component: ComponentModel) => {
       if (!component.pairGroupId) return null;
       return prisma.component.findFirst({
@@ -7515,6 +7843,14 @@ export const resolvers = {
         },
       });
     },
+  },
+
+  ServiceLog: {
+    // bikeHistory includes the parts in its own query; everything else (the
+    // component's serviceLogs, the mutation return values) goes through the
+    // per-request loader so a long logbook is one extra query, not one per row.
+    parts: (log: { id: string; parts?: unknown[] }, _args: unknown, ctx: GraphQLContext) =>
+      log.parts ?? ctx.loaders.partsByServiceLogId.load(log.id),
   },
 
   User: {

@@ -43,6 +43,9 @@ model User {
   hoursDisplayPreference         String?               @default("remaining")
   predictionMode                 String?               @default("simple")
   distanceUnit                   String?               @default("mi")
+  // ISO 4217 code new costs are entered in. Null until the rider picks one;
+  // the clients default to USD. Each stored amount still carries its own code.
+  currency                       String?               @db.VarChar(3)
   calibrationCompletedAt         DateTime?
   calibrationDismissedAt         DateTime?
   pairedComponentMigrationSeenAt DateTime?
@@ -492,6 +495,11 @@ model Bike {
   thumbnailUrl           String?
   acquisitionCondition   AcquisitionCondition?
   acquisitionDate        DateTime?
+  // What the rider paid for the bike, in the currency's minor units. Null when
+  // not recorded. Makes the bike's cost per ride hour a cost of ownership
+  // rather than parts and service alone.
+  purchasePriceMinor     Int?
+  purchaseCurrency       String?                     @db.VarChar(3)
   status                 BikeStatus                  @default(ACTIVE)
   retiredAt              DateTime?
   user                   User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -535,6 +543,14 @@ model Component {
   hoursUsed         Float             @default(0)
   serviceDueAtHours Float?
   notes             String?
+
+  // What the rider paid for the part itself, in the currency's minor units.
+  // Null on stock parts (the bike's price covers them) and on anything not
+  // recorded. A part is bought once and keeps its price across every bike it
+  // is fitted to, like lifetimeHours; cost per ride hour divides the two.
+  purchasePriceMinor Int?
+  purchaseCurrency   String? @db.VarChar(3)
+  purchasedFrom      String?
 
   // ------------------------------------------------------------------ counters
   // `priorHours` is DECLARED, never derived: hours the part accrued before Loam
@@ -698,11 +714,41 @@ model ServiceLog {
   /// SERVICE rows.
   serviceExtensionHours Float?
 
+  /// What the rider spent on this service in total (parts plus labour), in the
+  /// currency's minor units (cents). Null means not recorded, never zero. The
+  /// clients pre-fill it from the priced parts below; the server stores what
+  /// it is given, because "the shop charged me $140" is the figure a rider
+  /// actually knows.
+  costMinor Int?
+  /// ISO 4217 code for costMinor and for every part price on this log. Sums
+  /// never cross currencies: a converted figure would be invented precision.
+  currency  String? @db.VarChar(3)
+  parts     ServicePart[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([performedAt])
   @@index([componentId, kind, performedAt])
+}
+
+/// A part fitted during one service: a seal kit, a chain, a set of pads.
+/// Descriptive first (brand, model), priced when the rider knows the price.
+/// A service fits parts into a component without changing which component it
+/// is; a whole-part replacement is a new Component (see installComponent).
+model ServicePart {
+  id           String     @id @default(uuid())
+  serviceLogId String
+  serviceLog   ServiceLog @relation(fields: [serviceLogId], references: [id], onDelete: Cascade)
+  brand        String     @default("")
+  model        String
+  /// In the parent log's currency. Null when not recorded.
+  priceMinor   Int?
+  /// Where it was bought, free text.
+  vendor       String?
+  sortOrder    Int        @default(0)
+
+  @@index([serviceLogId])
 }
 
 enum ServiceLogKind {
