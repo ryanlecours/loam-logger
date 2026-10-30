@@ -169,6 +169,7 @@ import { generateSummary } from '../../services/advisor/summarize';
 import { captureServerEvent } from '../../lib/posthog';
 import { CURRENT_TERMS_VERSION } from '@loam/shared';
 import * as componentCounters from '../../lib/component-counters';
+import * as componentHistory from '../../lib/component-history';
 import * as componentHours from '../../lib/component-hours';
 import * as componentShare from '../../lib/component-share';
 import { getBaseInterval } from '../../services/prediction/config';
@@ -4612,6 +4613,148 @@ describe('GraphQL Resolvers', () => {
       });
     });
 
+    describe('parts and cost on a service log', () => {
+      const mockUserFindUnique = mockPrisma.user.findUnique as jest.Mock;
+      const partCreateMany = jest.fn();
+      const partDeleteMany = jest.fn();
+      const logUpdate = jest.fn();
+      const logService = (input: Record<string, unknown>) =>
+        resolvers.Mutation.logService(
+          {},
+          { input: { componentId: 'comp-1', ...input } } as never,
+          createMockContext('user-123') as never
+        );
+      const updateLog = (input: Record<string, unknown>) =>
+        resolvers.Mutation.updateServiceLog(
+          {},
+          { id: 'log-1', input } as never,
+          createMockContext('user-123') as never
+        );
+      const existingLog = {
+        id: 'log-1',
+        kind: 'SERVICE',
+        performedAt: new Date('2026-03-01T12:00:00Z'),
+        hoursAtService: 40,
+        serviceExtensionHours: null,
+        costMinor: null,
+        currency: null,
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      };
+
+      beforeEach(() => {
+        partCreateMany.mockReset().mockResolvedValue({ count: 0 });
+        partDeleteMany.mockReset().mockResolvedValue({ count: 0 });
+        logUpdate.mockReset().mockResolvedValue({ id: 'log-1' });
+        mockUserFindUnique.mockReset().mockResolvedValue({ currency: 'CAD' });
+        mockLogFindUnique.mockResolvedValue(existingLog);
+        mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+          fn({
+            serviceLog: { create, update: logUpdate },
+            servicePart: { createMany: partCreateMany, deleteMany: partDeleteMany },
+            component: { update: componentUpdate },
+          })
+        );
+      });
+
+      afterEach(() => {
+        // The shared user mock is read by many other blocks; leave it as found.
+        mockUserFindUnique.mockReset();
+      });
+
+      it('stores the total and the parts, in the order given, in the rider currency when none is sent', async () => {
+        await logService({
+          costMinor: 8500,
+          parts: [
+            { brand: 'Fox', model: 'Seal kit 36mm', priceMinor: 3800, vendor: ' Jenson ' },
+            { model: '20wt Gold oil' },
+          ],
+        });
+
+        expect(createdLog()).toMatchObject({ costMinor: 8500, currency: 'CAD', kind: 'SERVICE' });
+        expect(partCreateMany).toHaveBeenCalledWith({
+          data: [
+            { serviceLogId: 'log-new', brand: 'Fox', model: 'Seal kit 36mm', priceMinor: 3800, vendor: 'Jenson', sortOrder: 0 },
+            { serviceLogId: 'log-new', brand: '', model: '20wt Gold oil', priceMinor: null, vendor: null, sortOrder: 1 },
+          ],
+        });
+        expect(mockUserFindUnique).toHaveBeenCalledWith({ where: { id: 'user-123' }, select: { currency: true } });
+      });
+
+      it('keeps the sent currency and writes no parts rows for a plain service', async () => {
+        await logService({ costMinor: 1200, currency: 'EUR' });
+
+        expect(createdLog()).toMatchObject({ costMinor: 1200, currency: 'EUR' });
+        expect(partCreateMany).not.toHaveBeenCalled();
+        // The rider's currency is only looked up when none was sent.
+        expect(mockUserFindUnique).not.toHaveBeenCalled();
+      });
+
+      it('records nothing about money on a service that did not mention it', async () => {
+        await logService({});
+
+        expect(createdLog()).toMatchObject({ costMinor: null, currency: null });
+        expect(mockUserFindUnique).not.toHaveBeenCalled();
+        expect(partCreateMany).not.toHaveBeenCalled();
+      });
+
+      it('rejects a negative or fractional cost, an unknown currency, a nameless part and too many parts', async () => {
+        for (const input of [
+          { costMinor: -1 },
+          { costMinor: 12.5 },
+          { costMinor: 100, currency: 'XXX' },
+          { parts: [{ model: '   ' }] },
+          { parts: Array.from({ length: 21 }, (_, i) => ({ model: `part ${i}` })) },
+        ]) {
+          await expect(logService(input)).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });
+        }
+        expect(create).not.toHaveBeenCalled();
+      });
+
+      it('replaces the parts list and sets the cost on an edit, resolving a currency for the amount', async () => {
+        await updateLog({ costMinor: 4000, parts: [{ brand: 'SRAM', model: 'GX Eagle chain', priceMinor: 4000 }] });
+
+        expect(logUpdate).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ costMinor: 4000, currency: 'CAD' }) })
+        );
+        expect(partDeleteMany).toHaveBeenCalledWith({ where: { serviceLogId: 'log-1' } });
+        expect(partCreateMany).toHaveBeenCalledWith({
+          data: [{ serviceLogId: 'log-1', brand: 'SRAM', model: 'GX Eagle chain', priceMinor: 4000, vendor: null, sortOrder: 0 }],
+        });
+      });
+
+      it('clears the cost with null and leaves the parts alone when they are not sent', async () => {
+        mockLogFindUnique.mockResolvedValue({ ...existingLog, costMinor: 9000, currency: 'USD' });
+
+        await updateLog({ costMinor: null });
+
+        expect(logUpdate).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ costMinor: null }) })
+        );
+        expect(partDeleteMany).not.toHaveBeenCalled();
+        expect(partCreateMany).not.toHaveBeenCalled();
+        expect(mockUserFindUnique).not.toHaveBeenCalled();
+      });
+
+      it('keeps the currency a log already has when only the amount is corrected', async () => {
+        mockLogFindUnique.mockResolvedValue({ ...existingLog, costMinor: 9000, currency: 'EUR' });
+
+        await updateLog({ costMinor: 9500 });
+
+        const data = logUpdate.mock.calls[0][0].data;
+        expect(data.costMinor).toBe(9500);
+        // Not relabelled in the rider's CAD: the stored EUR stands.
+        expect(data).not.toHaveProperty('currency');
+        expect(mockUserFindUnique).not.toHaveBeenCalled();
+      });
+
+      it('removes every part when an empty list is sent', async () => {
+        await updateLog({ parts: [] });
+
+        expect(partDeleteMany).toHaveBeenCalledWith({ where: { serviceLogId: 'log-1' } });
+        expect(partCreateMany).not.toHaveBeenCalled();
+      });
+    });
+
     describe('snoozeComponent', () => {
       const mutation = resolvers.Mutation.snoozeComponent;
       const snooze = (hours?: number) =>
@@ -6248,10 +6391,18 @@ describe('GraphQL Resolvers', () => {
         thumbnailUrl: null,
         shareSlug: 'slug12345678',
       });
+      // Same tenure attribution as bikeHistory; the window builder is stubbed.
+      const sharedWindowsSpy = jest
+        .spyOn(componentHistory, 'componentWindowsForBike')
+        .mockResolvedValueOnce([
+          { componentId: 'fork-1', start: new Date('2026-01-01T00:00:00Z'), end: new Date('2100-01-01T00:00:00Z') },
+        ]);
       (prisma.serviceLog.findMany as jest.Mock).mockResolvedValueOnce([
         {
           performedAt: new Date('2026-05-01T00:00:00Z'),
+          kind: 'SERVICE',
           component: { type: 'FORK', location: 'FRONT', brand: 'Fox', model: '38' },
+          parts: [{ brand: 'Fox', model: 'Seal kit 38mm' }],
         },
       ]);
       (prisma.bikeComponentInstall.findMany as jest.Mock).mockResolvedValueOnce([
@@ -6285,6 +6436,16 @@ describe('GraphQL Resolvers', () => {
       expect(result.serviceEvents[0]).not.toHaveProperty('notes');
       const serviceSelect = (prisma.serviceLog.findMany as jest.Mock).mock.calls[0][0].select;
       expect(serviceSelect.notes).toBeUndefined();
+      // Parts fitted are shown to a buyer by brand and model; what they cost
+      // and where they were bought say something about the owner and stay out.
+      expect(serviceSelect.costMinor).toBeUndefined();
+      expect(serviceSelect.parts.select).toEqual({ brand: true, model: true });
+      expect(result.serviceEvents[0]).toMatchObject({
+        kind: 'SERVICE',
+        parts: [{ brand: 'Fox', model: 'Seal kit 38mm' }],
+      });
+      expect(sharedWindowsSpy).toHaveBeenCalledWith(expect.anything(), 'bike-1', 'owner-1');
+      sharedWindowsSpy.mockRestore();
     });
   });
 
@@ -6616,12 +6777,18 @@ describe('GraphQL Resolvers', () => {
     const mockServiceLogFindMany = mockPrisma.serviceLog.findMany as jest.Mock;
     const mockInstallFindMany = mockPrisma.bikeComponentInstall.findMany as jest.Mock;
     const mockUserFindUniqueOrThrow = mockPrisma.user.findUniqueOrThrow as jest.Mock;
+    // Services are selected by the tenure windows of every part that was ever
+    // on the bike. The window builder has its own tests; here it is stubbed
+    // with one open tenure so the service query shape can be asserted.
+    let windowsSpy: jest.SpyInstance;
+    const WINDOW = { componentId: 'c1', start: new Date('2020-01-01T00:00:00Z'), end: new Date('2100-01-01T00:00:00Z') };
 
     beforeEach(() => {
       mockBikeFindFirst.mockReset();
       mockRideFindMany.mockReset().mockResolvedValue([]);
       mockServiceLogFindMany.mockReset().mockResolvedValue([]);
       mockInstallFindMany.mockReset().mockResolvedValue([]);
+      windowsSpy = jest.spyOn(componentHistory, 'componentWindowsForBike').mockResolvedValue([WINDOW]);
       // Default to PRO so existing tests see every event type. Individual tests
       // can override for tier-gated assertions.
       mockUserFindUniqueOrThrow.mockReset().mockResolvedValue({
@@ -6629,6 +6796,10 @@ describe('GraphQL Resolvers', () => {
         isFoundingRider: false,
         role: 'FREE',
       });
+    });
+
+    afterEach(() => {
+      windowsSpy.mockRestore();
     });
 
     it('rejects when the bike is not owned by the viewer', async () => {
@@ -6672,6 +6843,21 @@ describe('GraphQL Resolvers', () => {
           performedAt: new Date('2026-01-15T00:00:00Z'),
           notes: 'fork lowers',
           hoursAtService: 120,
+          kind: 'SERVICE',
+          costMinor: 8500,
+          currency: 'USD',
+          parts: [{ id: 'p1', brand: 'Fox', model: 'Seal kit', priceMinor: 3800, vendor: null }],
+          component: { id: 'c1' },
+        },
+        {
+          id: 's2',
+          performedAt: new Date('2026-02-15T00:00:00Z'),
+          notes: null,
+          hoursAtService: 130,
+          kind: 'SERVICE',
+          costMinor: 9900,
+          currency: 'EUR',
+          parts: [],
           component: { id: 'c1' },
         },
       ]);
@@ -6689,11 +6875,60 @@ describe('GraphQL Resolvers', () => {
         totalDistanceMeters: 15000,
         totalDurationSeconds: 5400,
         totalElevationGainMeters: 450,
-        serviceEventCount: 1,
+        serviceEventCount: 2,
         installEventCount: 0,
+        // Spend is summed in one currency (the first seen, since the viewer
+        // has none set) and the other currency is counted, not converted.
+        spendMinor: 8500,
+        spendCurrency: 'USD',
+        spendOtherCurrencyCount: 1,
       });
-      expect(result.serviceEvents[0].performedAt).toBe('2026-01-15T00:00:00.000Z');
+      expect(result.serviceEvents[0]).toMatchObject({
+        performedAt: '2026-01-15T00:00:00.000Z',
+        kind: 'SERVICE',
+        costMinor: 8500,
+        currency: 'USD',
+        parts: [expect.objectContaining({ brand: 'Fox', model: 'Seal kit' })],
+      });
       expect(result.truncated).toBe(false);
+    });
+
+    it('selects services by where the part was when the work was done, not by its current bike', async () => {
+      // A fork that was on this bike for 2025 and has since been replaced: its
+      // Component.bikeId is null now, but its 2025 services are this bike's.
+      windowsSpy.mockResolvedValue([
+        { componentId: 'old-fork', start: new Date('2025-01-01T00:00:00Z'), end: new Date('2026-01-01T00:00:00Z') },
+      ]);
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' });
+
+      const ctx = createMockContext('user-123');
+      await resolver({}, { bikeId: 'bike-1', startDate: '2025-01-01T00:00:00Z' }, ctx as never);
+
+      expect(windowsSpy).toHaveBeenCalledWith(expect.anything(), 'bike-1', 'user-123');
+      const serviceWhere = mockServiceLogFindMany.mock.calls[0][0].where;
+      expect(serviceWhere.AND[0]).toEqual({
+        OR: [
+          {
+            componentId: 'old-fork',
+            performedAt: { gte: new Date('2025-01-01T00:00:00Z'), lt: new Date('2026-01-01T00:00:00Z') },
+          },
+        ],
+      });
+      expect(serviceWhere.AND[2]).toEqual({ performedAt: { gte: new Date('2025-01-01T00:00:00Z') } });
+      // Parts ride along in the same query rather than a per-row loader.
+      expect(mockServiceLogFindMany.mock.calls[0][0].include.parts).toBeDefined();
+    });
+
+    it('skips the service query entirely when nothing was ever installed', async () => {
+      windowsSpy.mockResolvedValue([]);
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' });
+
+      const ctx = createMockContext('user-123');
+      const result = await resolver({}, { bikeId: 'bike-1' }, ctx as never);
+
+      expect(mockServiceLogFindMany).not.toHaveBeenCalled();
+      expect(result.serviceEvents).toEqual([]);
+      expect(result.totals.spendMinor).toBeNull();
     });
 
     it('splits a BikeComponentInstall with removedAt into two events', async () => {
@@ -6757,8 +6992,8 @@ describe('GraphQL Resolvers', () => {
 
       // Free = all component types: history queries carry no type restriction.
       const serviceWhere = mockServiceLogFindMany.mock.calls[0][0].where;
-      expect(serviceWhere.component.bikeId).toBe('bike-1');
-      expect(serviceWhere.component.type).toBeUndefined();
+      expect(serviceWhere.AND[0].OR[0].componentId).toBe('c1');
+      expect(JSON.stringify(serviceWhere)).not.toContain('"type"');
 
       const installWhere = mockInstallFindMany.mock.calls[0][0].where;
       expect(installWhere.component).toBeUndefined();
@@ -6774,7 +7009,10 @@ describe('GraphQL Resolvers', () => {
       // Pro tier: no `type` restriction on the joined Component, but the
       // defense-in-depth userId filter still applies everywhere.
       const serviceWhere = mockServiceLogFindMany.mock.calls[0][0].where;
-      expect(serviceWhere.component).toEqual({ bikeId: 'bike-1', userId: 'user-123' });
+      expect(serviceWhere.AND).toEqual([
+        { OR: [{ componentId: 'c1', performedAt: { gte: WINDOW.start, lt: WINDOW.end } }] },
+        { component: { userId: 'user-123' } },
+      ]);
       const installWhere = mockInstallFindMany.mock.calls[0][0].where;
       expect(installWhere.component).toBeUndefined();
       expect(installWhere.userId).toBe('user-123');
@@ -6793,7 +7031,7 @@ describe('GraphQL Resolvers', () => {
       expect(rideWhere.userId).toBe('user-123');
 
       const serviceWhere = mockServiceLogFindMany.mock.calls[0][0].where;
-      expect(serviceWhere.component.userId).toBe('user-123');
+      expect(serviceWhere.AND).toContainEqual({ component: { userId: 'user-123' } });
 
       const installWhere = mockInstallFindMany.mock.calls[0][0].where;
       expect(installWhere.userId).toBe('user-123');

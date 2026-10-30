@@ -405,6 +405,13 @@ export const typeDefs = gql`
     inspectionDueAtHours: Float @deprecated(reason: "Mobile builds up to 1.3.0 request this. Remove once they stop (see the deprecatedFieldUsage plugin).")
     lastInspectedAt: String
     isStock: Boolean!
+    # What the rider paid for the part, in minor units of purchaseCurrency.
+    # Null on stock parts and anything not recorded.
+    purchasePriceMinor: Int
+    purchaseCurrency: String
+    purchasedFrom: String
+    # Pro only; null for Free and for anyone but the owner.
+    costSummary: ComponentCostSummary
     bikeId: ID
     isSpare: Boolean!
     status: ComponentStatus!
@@ -445,7 +452,78 @@ export const typeDefs = gql`
     # INSPECTION only: hours of riding until the next service, counted from
     # this inspection. Null on services.
     serviceExtensionHours: Float
+    # What the rider spent on this service in total (parts plus labour), in
+    # the currency's minor units (cents). Null when not recorded, never zero.
+    costMinor: Int
+    # ISO 4217 code for costMinor and for every part price on this log.
+    currency: String
+    # Parts fitted during this service, in the rider's order.
+    parts: [ServicePart!]!
     createdAt: String!
+  }
+
+  # A part fitted during one service: a seal kit, a chain, a set of pads. A
+  # service fits parts into a component without changing which component it
+  # is; replacing the whole part is installComponent with a newComponent.
+  type ServicePart {
+    id: ID!
+    brand: String!
+    model: String!
+    # In the parent log's currency. Null when not recorded.
+    priceMinor: Int
+    # Where it was bought, free text.
+    vendor: String
+  }
+
+  input ServicePartInput {
+    brand: String
+    model: String!
+    priceMinor: Int
+    vendor: String
+  }
+
+  # The money a component has cost over its life, in one currency. Pro only:
+  # Free riders get null, never zeros, because "$0 per hour" would be a false
+  # fact rather than an absent one.
+  type ComponentCostSummary {
+    currency: String!
+    # Component.purchasePriceMinor; null when not recorded.
+    purchaseMinor: Int
+    # Sum of costMinor over this part's SERVICE logs in this currency.
+    serviceMinor: Int!
+    totalMinor: Int!
+    lifetimeHours: Float!
+    # totalMinor / lifetimeHours; null under one hour, so a fresh part never
+    # reads as costing thousands per hour.
+    perHourMinor: Float
+    # Recorded amounts in another currency, left out of the sums above.
+    otherCurrencyCount: Int!
+  }
+
+  type BikeCostYear {
+    year: Int!
+    partsMinor: Int!
+    serviceMinor: Int!
+  }
+
+  # What a bike has cost to own and keep running, in one currency. Pro only
+  # (null for Free). Service spend is attributed by tenure: a service counts
+  # toward this bike when it was performed while the part was installed here.
+  type BikeCostSummary {
+    currency: String!
+    # Bike.purchasePriceMinor; null when not recorded.
+    bikeMinor: Int
+    # Purchase prices of the non-stock parts ever installed on this bike.
+    partsMinor: Int!
+    # Services performed while the part was on this bike.
+    serviceMinor: Int!
+    totalMinor: Int!
+    # Counted ride hours on this bike.
+    rideHours: Float!
+    # totalMinor / rideHours; null under one hour.
+    perHourMinor: Float
+    byYear: [BikeCostYear!]!
+    otherCurrencyCount: Int!
   }
 
   enum ServiceLogKind {
@@ -696,6 +774,11 @@ export const typeDefs = gql`
     batteryWh: Int
     acquisitionCondition: AcquisitionCondition
     acquisitionDate: String
+    # What the rider paid for the bike, in minor units of purchaseCurrency.
+    purchasePriceMinor: Int
+    purchaseCurrency: String
+    # Pro only; null for Free and for anyone but the owner.
+    costSummary: BikeCostSummary
     status: BikeStatus!
     retiredAt: String
     fork: Component
@@ -942,6 +1025,9 @@ export const typeDefs = gql`
     hoursUsed: Float
     serviceDueAtHours: Float
     installedAt: String
+    purchasePriceMinor: Int
+    purchaseCurrency: String
+    purchasedFrom: String
   }
 
   input UpdateComponentInput {
@@ -952,6 +1038,10 @@ export const typeDefs = gql`
     isStock: Boolean
     hoursUsed: Float
     serviceDueAtHours: Float
+    # Null clears each; omitted leaves it alone.
+    purchasePriceMinor: Int
+    purchaseCurrency: String
+    purchasedFrom: String
     # Hours the part carried before Loam Logger saw it — the honest way to say
     # "these wheels are secondhand". Setting it rebuilds the component's
     # counters, since lifetimeHours is priorHours plus its counted rides.
@@ -972,6 +1062,13 @@ export const typeDefs = gql`
     # INSPECTION only: hours until the next service. Defaults to half the
     # component's service interval. Rejected on a SERVICE.
     serviceExtensionHours: Float
+    # Total spent, in minor units of \`currency\` (which defaults to the
+    # rider's Settings currency, then USD). Omit when unknown; never send 0
+    # for "I don't know".
+    costMinor: Int
+    currency: String
+    # Parts fitted, at most 20.
+    parts: [ServicePartInput!]
   }
 
   input UpdateServiceLogInput {
@@ -980,6 +1077,11 @@ export const typeDefs = gql`
     hoursAtService: Float
     # INSPECTION logs only.
     serviceExtensionHours: Float
+    # Null clears the cost. Omitted leaves it alone.
+    costMinor: Int
+    currency: String
+    # Replace-all: the list sent becomes the log's parts. Omitted leaves them.
+    parts: [ServicePartInput!]
   }
 
   """
@@ -1124,6 +1226,8 @@ export const typeDefs = gql`
     hoursDisplayPreference: String
     predictionMode: String
     distanceUnit: String
+    # One of the supported ISO 4217 codes, or null to clear.
+    currency: String
     expoPushToken: String
     # Legacy on/off for ride-sync pushes, still sent by app versions <= 1.1.3.
     # Maps onto rideSyncNotificationMode (false -> OFF; true -> ALL, unless
@@ -1248,6 +1352,9 @@ export const typeDefs = gql`
     pairBrand: String
     pairModel: String
     installedAt: String
+    purchasePriceMinor: Int
+    purchaseCurrency: String
+    purchasedFrom: String
   }
 
   type ReplaceComponentResult {
@@ -1265,6 +1372,9 @@ export const typeDefs = gql`
     brand: String!
     model: String!
     isStock: Boolean
+    purchasePriceMinor: Int
+    purchaseCurrency: String
+    purchasedFrom: String
   }
 
   input InstallComponentInput {
@@ -1539,6 +1649,9 @@ export const typeDefs = gql`
     hoursDisplayPreference: String
     predictionMode: String
     distanceUnit: String
+    # ISO 4217 code new costs are entered in; null until the rider picks one
+    # (clients default to USD).
+    currency: String
     analyticsOptOut: Boolean!
     pairedComponentMigrationSeenAt: String
     trailStewardshipNoticeSeenAt: String
@@ -1691,6 +1804,10 @@ export const typeDefs = gql`
     performedAt: String!
     notes: String
     hoursAtService: Float!
+    kind: ServiceLogKind!
+    costMinor: Int
+    currency: String
+    parts: [ServicePart!]!
     component: Component!
   }
 
@@ -1708,6 +1825,14 @@ export const typeDefs = gql`
     totalElevationGainMeters: Float!
     serviceEventCount: Int!
     installEventCount: Int!
+    # Plain sum of the listed services' costMinor in spendCurrency (the
+    # rider's Settings currency, else the first one seen). Free for every
+    # tier: a sum of numbers the rider typed is a record, not an insight.
+    # Null when no service in the range recorded a cost.
+    spendMinor: Int
+    spendCurrency: String
+    # Services in the range whose cost is in another currency.
+    spendOtherCurrencyCount: Int!
   }
 
   type BikeHistoryPayload {
@@ -1743,7 +1868,16 @@ export const typeDefs = gql`
   # an unauthenticated page.
   type SharedServiceEvent {
     performedAt: String!
+    kind: ServiceLogKind!
     component: SharedComponent!
+    # Parts fitted: brand and model only. Prices and vendors never reach this
+    # unauthenticated page, since spend says something about the owner.
+    parts: [SharedServicePart!]!
+  }
+
+  type SharedServicePart {
+    brand: String!
+    model: String!
   }
 
   type SharedInstallEvent {

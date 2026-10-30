@@ -716,3 +716,105 @@ export function foldConditionBuckets(
 
   return WEATHER_CONDITIONS.map((c) => buckets.get(c)!);
 }
+
+/** One component's half-open stay [start, end) on one bike. */
+export interface ComponentWindow {
+  componentId: string;
+  start: Date;
+  end: Date;
+}
+
+/**
+ * Every component's tenure windows on one bike, across every part ever
+ * installed there, as (componentId, start, end) triples.
+ *
+ * This is the bike-side view of the same tenure rule normalizeTenures applies
+ * per component: each component's rows are normalized on their own (so open
+ * rows close at retirement and a component that claims the bike without an
+ * install row gets its synthetic tenure), then only the stays on this bike are
+ * kept. mergeWindows is deliberately not used: it coalesces by bike alone and
+ * would fold different components' windows into one, losing the componentId
+ * that service attribution needs.
+ *
+ * Used to attribute service logs to a bike by when they happened rather than
+ * by Component.bikeId, so services on parts since replaced, moved to another
+ * bike or retired stay in this bike's history and cost.
+ */
+export async function componentWindowsForBike(
+  db: PrismaClient | Prisma.TransactionClient,
+  bikeId: string,
+  userId: string,
+  now: Date = new Date()
+): Promise<ComponentWindow[]> {
+  const rows = await db.bikeComponentInstall.findMany({
+    where: { bikeId, userId },
+    select: { id: true, bikeId: true, slotKey: true, installedAt: true, removedAt: true, componentId: true },
+    orderBy: { installedAt: 'asc' },
+    take: TENURE_CAP * 5,
+  });
+  const componentIds = new Set(rows.map((r) => r.componentId));
+  const components = await db.component.findMany({
+    where: {
+      userId,
+      OR: [{ id: { in: [...componentIds] } }, { bikeId }],
+    },
+    select: {
+      id: true,
+      userId: true,
+      bikeId: true,
+      installedAt: true,
+      createdAt: true,
+      retiredAt: true,
+      hoursUsed: true,
+    },
+  });
+
+  const rowsByComponent = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const list = rowsByComponent.get(row.componentId);
+    if (list) list.push(row);
+    else rowsByComponent.set(row.componentId, [row]);
+  }
+
+  const windows: ComponentWindow[] = [];
+  for (const component of components) {
+    // A component's rows on OTHER bikes matter to normalizeTenures only for the
+    // drift repair, which looks at rows on component.bikeId. When that is this
+    // bike, the rows we fetched are exactly the relevant ones.
+    const { tenures } = normalizeTenures(component, rowsByComponent.get(component.id) ?? [], now);
+    for (const t of tenures) {
+      if (t.bikeId !== bikeId) continue;
+      windows.push({ componentId: component.id, start: t.start, end: t.end });
+    }
+  }
+  return windows;
+}
+
+/**
+ * Prisma predicate selecting the service logs performed inside any of the
+ * windows: one indexable branch per window on (componentId, performedAt).
+ * Returns null when there are no windows, so callers skip the query.
+ */
+export function serviceLogWhereForWindows(
+  windows: ComponentWindow[]
+): Prisma.ServiceLogWhereInput | null {
+  if (windows.length === 0) return null;
+  return {
+    OR: windows.map((w) => ({
+      componentId: w.componentId,
+      performedAt: { gte: w.start, lt: w.end },
+    })),
+  };
+}
+
+/** The window (if any) that contains the moment, for attributing one log to a bike. */
+export function windowContaining<T extends ComponentWindow>(
+  windows: T[],
+  componentId: string,
+  at: Date
+): T | null {
+  for (const w of windows) {
+    if (w.componentId === componentId && at >= w.start && at < w.end) return w;
+  }
+  return null;
+}

@@ -383,6 +383,9 @@ export const AUTH_RATE_LIMITS = {
    *  household or office behind one NAT. */
   'signup-hourly': { windowSeconds: 3600, maxRequests: 20 },
   'signup-daily': { windowSeconds: 86400, maxRequests: 50 },
+  /** maintenance-export: per userId. The CSV walks every bike, install and
+   *  service log the rider has, so a download loop is held to a few an hour. */
+  'maintenance-export': { windowSeconds: 3600, maxRequests: 10 },
   /** signup-unattested: one global bucket (identifier `global`) shared by
    *  every mobile signup without a verified device attestation, applied only
    *  when DEVICE_ATTESTATION_MODE=enforce. Attested signups never touch it,

@@ -1,6 +1,6 @@
 import DataLoader from 'dataloader';
 import { prisma } from '../lib/prisma';
-import type { ServiceLog, RideWeather, SubscriptionTier, UserRole } from '@prisma/client';
+import type { ServiceLog, ServicePart, RideWeather, SubscriptionTier, UserRole } from '@prisma/client';
 import {
   batchLiftFieldsByRideId,
   batchLiftSegmentsByRideId,
@@ -81,6 +81,28 @@ async function batchLatestServiceLogByComponentId(
 }
 
 /**
+ * Batch loads the parts fitted during many service logs in one query, in the
+ * order the rider entered them. Backs ServiceLog.parts so a history page with
+ * a hundred logs does not issue a hundred part lookups.
+ */
+async function batchPartsByServiceLogId(
+  serviceLogIds: readonly string[]
+): Promise<ServicePart[][]> {
+  if (serviceLogIds.length === 0) return [];
+  const parts = await prisma.servicePart.findMany({
+    where: { serviceLogId: { in: [...serviceLogIds] } },
+    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+  });
+  const byLog = new Map<string, ServicePart[]>();
+  for (const part of parts) {
+    const list = byLog.get(part.serviceLogId);
+    if (list) list.push(part);
+    else byLog.set(part.serviceLogId, [part]);
+  }
+  return serviceLogIds.map((id) => byLog.get(id) ?? []);
+}
+
+/**
  * Batch loads RideWeather rows for many rides in one query.
  * Solves N+1 when Ride.weather is resolved across a rides list.
  */
@@ -132,6 +154,7 @@ export function createDataLoaders() {
     latestServiceLogByComponentId: new DataLoader<string, ServiceLog | null>(
       batchLatestServiceLogByComponentId
     ),
+    partsByServiceLogId: new DataLoader<string, ServicePart[]>(batchPartsByServiceLogId),
     weatherByRideId: new DataLoader<string, RideWeather | null>(
       batchWeatherByRideId
     ),

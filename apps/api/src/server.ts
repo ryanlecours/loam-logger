@@ -55,6 +55,7 @@ import suuntoBackfill from './routes/suunto.backfill';
 import backfillHistory from './routes/backfill.history';
 import dataSourceRouter from './routes/data-source';
 import duplicatesRouter from './routes/duplicates';
+import exportRouter from './routes/export';
 import garminTest from './routes/garmin.test';
 import mockGarmin from './routes/mock.garmin';
 import onboardingRouter from './routes/onboarding';
@@ -272,6 +273,7 @@ const startServer = async () => {
   app.use('/api', backfillHistory);
   app.use('/api', dataSourceRouter);
   app.use('/api', duplicatesRouter);
+  app.use('/api', exportRouter);
   app.use('/api', publicRouter);
   app.use('/api', emailUnsubscribeRouter);
   app.use('/api/admin', adminRouter);
